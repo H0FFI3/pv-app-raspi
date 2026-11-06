@@ -37,7 +37,7 @@ class Clock:
 @pytest.fixture
 def parts(tmp_path):
     FakePopen.instances = []
-    clock = Clock(datetime(2026, 10, 18, 6, 0))
+    clock = Clock(datetime(2026, 10, 18, 5, 30))
     status = StatusStore(tmp_path / "status.json")
     updater = Updater(status, command=lambda: ["fake", "--no-open"], popen=FakePopen, now=clock, log_path=lambda: tmp_path / "logs" / "last.log")
     return updater, status, clock
@@ -105,7 +105,7 @@ def test_stop_terminates_a_running_update(parts):
 
 def test_update_command_points_at_the_app():
     command = up.update_command()
-    assert command[-2:] == ["--no-open", "--no-report"] and command[0]  # der Server liefert den Bericht selbst aus
+    assert command[-4:] == ["--no-open", "--no-report", "--refresh-days", "1"] and command[0]
 
 
 def test_the_status_headline_is_shortened(parts):
@@ -127,7 +127,7 @@ def test_status_store_survives_corrupt_files(tmp_path):
 
 # ------------------------------------------------------------------------------ due()
 
-SLOT = time(6, 0)
+SLOT = time(5, 30)
 
 
 def at(hour, minute=0, day=18):
@@ -137,26 +137,22 @@ def at(hour, minute=0, day=18):
 @pytest.mark.parametrize(
     "now,status,expected",
     [
-        (at(7), {"last_success_date": "2026-10-18"}, False),  # heute schon erledigt
-        (at(5), {"last_success_date": "2026-10-17"}, False),  # vor der Uhrzeit
-        (at(6), {"last_success_date": "2026-10-17"}, True),  # genau zur Uhrzeit
-        (at(21), {"last_success_date": "2026-10-15"}, True),  # Rechner war aus: Nachholen
-        (at(5), {}, True),  # erster Start: sofort, auch vor der Uhrzeit
-        (at(7), {"last_success_date": "2026-10-17", "attempts_date": "2026-10-18", "attempts": 3, "last_started": "2026-10-18T06:00:00"}, False),  # Versuche aufgebraucht
-        (at(6, 20), {"last_success_date": "2026-10-17", "attempts_date": "2026-10-18", "attempts": 1, "last_started": "2026-10-18T06:00:00"}, False),  # Wartezeit
-        (at(6, 31), {"last_success_date": "2026-10-17", "attempts_date": "2026-10-18", "attempts": 1, "last_started": "2026-10-18T06:00:00"}, True),
-        (at(8), {"last_success_date": "2026-10-17", "attempts_date": "2026-10-17", "attempts": 3, "last_started": "2026-10-17T07:00:00"}, True),  # Versuche zählen je Tag
-        (at(5, 10), {"attempts_date": "2026-10-18", "attempts": 1, "last_started": "2026-10-18T05:00:00"}, False),  # erster Start schlug fehl: erst nach der Wartezeit
-        (at(7), {"last_success_date": "2026-10-17", "last_started": "kein-datum", "attempts_date": "2026-10-18", "attempts": 1}, True),
+        (at(5, 29), {}, False),
+        (at(5, 30), {}, True),
+        (at(6), {"last_started": "2026-10-18T05:30:00"}, False),
+        (at(19), {}, True),
+        (at(19), {"last_started": "2026-10-18T05:30:00"}, False),
+        (at(5, 29, day=19), {"last_started": "2026-10-18T05:30:00"}, False),
+        (at(5, 30, day=19), {"last_started": "2026-10-18T05:30:00"}, True),
     ],
 )
-def test_due(now, status, expected):
+def test_due_runs_only_once_per_day_at_the_configured_time(now, status, expected):
     assert due(now, SLOT, status) is expected
 
 
 def test_due_works_with_timezone_aware_times():
-    now = datetime(2026, 10, 18, 7, 0, tzinfo=timezone.utc)
-    status = {"last_success_date": "2026-10-17", "attempts_date": "2026-10-18", "attempts": 1, "last_started": "2026-10-18T06:00:00"}
+    now = datetime(2026, 10, 18, 5, 30, tzinfo=timezone.utc)
+    status = {"last_started": "2026-10-17T05:30:00"}
     assert due(now, SLOT, status) is True
 
 
@@ -167,9 +163,10 @@ def test_status_texts():
     assert ok["ok"] is True and "18.10.2026 06:02" in ok["text"]
     bad = describe_status({"last_finished": "2026-10-18T06:02:00", "last_ok": False, "last_message": "Netzwerk weg"}, False)
     assert bad["ok"] is False and "Netzwerk weg" in bad["text"]
-    assert next_slot_text(at(5), SLOT, {}) == "Nächste Aktualisierung: 18.10. um 06:00"
-    assert next_slot_text(at(7), SLOT, {}) == "Nächste Aktualisierung: sobald möglich"
-    assert next_slot_text(at(7), SLOT, {"last_success_date": "2026-10-18"}) == "Nächste Aktualisierung: 19.10. um 06:00"
+    assert next_slot_text(at(5), time(5, 30), {}).startswith("Nächste Aktualisierung: 18.10. um 05:30")
+    assert next_slot_text(at(7), time(5, 30), {}) == "Nächste Aktualisierung: sobald möglich"
+    assert next_slot_text(at(7), time(5, 30), {"last_started": "2026-10-18T05:30:00"}).startswith("Nächste Aktualisierung: 19.10. um 05:30")
+    assert next_slot_text(at(19), time(5, 30), {}) == "Nächste Aktualisierung: sobald möglich"
 
 
 # ------------------------------------------------------------------------------ Scheduler
@@ -184,8 +181,10 @@ def test_scheduler_starts_only_when_configured_and_due(parts):
     assert scheduler.tick() is True and status.read()["last_trigger"] == "schedule"
     assert scheduler.tick() is False and len(FakePopen.instances) == 1  # läuft schon
     FakePopen.instances[0].finish(0)
-    assert scheduler.tick() is False  # heute erledigt
-    clock.now += timedelta(days=1, hours=1)
+    assert scheduler.tick() is False  # heute wurde bereits aktualisiert
+    clock.now += timedelta(hours=1)
+    assert scheduler.tick() is False and len(FakePopen.instances) == 1
+    clock.now = datetime(2026, 10, 19, 5, 30)
     assert scheduler.tick() is True and len(FakePopen.instances) == 2
 
 

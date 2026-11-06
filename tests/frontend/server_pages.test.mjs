@@ -48,7 +48,7 @@ function load(name, fetchImpl) {
 test("Statusleiste zeigt Stand und nächsten Termin, Bericht läuft unverändert", () => {
   const page = load("served", scriptedFetch(() => ({})));
   assert.deepEqual(page.errors, []);
-  assert.equal(page.$("#pv-bar-text").textContent, "Zuletzt aktualisiert: 18.10.2026 06:02 · Nächste Aktualisierung: 19.10. um 06:00");
+  assert.equal(page.$("#pv-bar-text").textContent, "Zuletzt aktualisiert: 18.10.2026 06:02 · Nächste Aktualisierung: 19.10. um 05:30");
   assert.equal(page.$("#pv-bar-update").disabled, false);
   assert.equal(page.$("#pv-bar a").getAttribute("href"), "/setup");
   assert.ok(page.$("#energy-chart").pvChart, "der Bericht selbst wird gezeichnet");

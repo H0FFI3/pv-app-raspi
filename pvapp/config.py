@@ -90,7 +90,7 @@ class Config:
     data_start_date: date
     api_request_interval_seconds: int = 10
     backfill_max_days: int = 14
-    update_time: time = time(6, 0)  # tägliche Aktualisierung im Serve-Modus (lokale Uhrzeit der Anlage)
+    update_time: time = time(5, 30)  # tägliche Aktualisierung im Serve-Modus
     weather_source: str = "auto"
     # Modelloptionen (Standard = unverändertes Verhalten der Vorversion)
     iam_enabled: bool = False
@@ -288,15 +288,14 @@ def config_from_env(env: Mapping[str, str]) -> Config:
         r.invalid.append(f"WEATHER_SOURCE='{weather_source}' (erlaubt: {', '.join(WEATHER_SOURCES)})")
         weather_source = "auto"
 
-    update_time = time(6, 0)
+    update_time = time(5, 30)
     update_text = r.raw("UPDATE_TIME")
     if update_text:
         try:
             hours, minutes = update_text.split(":")
             update_time = time(int(hours), int(minutes))
         except ValueError:
-            r.invalid.append(f"UPDATE_TIME='{update_text}' (Format HH:MM erwartet, z. B. 06:00)")
-
+            r.invalid.append(f"UPDATE_TIME='{update_text}' (Format HH:MM erwartet, z. B. 05:30)")
     iam_enabled = r.bool("IAM_ENABLED")
     iam_b = r.float("IAM_B", default=0.05, minimum=0, maximum=1)
     albedo = r.float("ALBEDO", default=0.25, minimum=0, maximum=1)

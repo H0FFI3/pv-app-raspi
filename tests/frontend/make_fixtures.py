@@ -67,7 +67,7 @@ def main(target: Path) -> None:
         create_standalone_report(annotate_records(data, settings), project_root(), target / f"{name}.html")
 
     status = {"running": False, "ok": True, "text": "Zuletzt aktualisiert: 18.10.2026 06:02"}
-    bar = server_bar("TOKEN123", status, "Nächste Aktualisierung: 19.10. um 06:00")
+    bar = server_bar("TOKEN123", status, "Nächste Aktualisierung: 19.10. um 05:30")
     (target / "served.html").write_text(render_report(annotate_records(records(5, 2), settings), project_root(), bar), encoding="utf-8")
     (target / "setup.html").write_text(setup_page("TOKEN123", current_values({}), has_secret=True), encoding="utf-8")
 

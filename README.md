@@ -5,8 +5,8 @@ modellierten Erträgen. Die App bezieht Anlagendaten über die AlphaESS Open API
 Wetterdaten über Open-Meteo und verwendet pvlib für die PV-Modellierung.
 
 Die Anwendung kann als Server mit Dashboard und Einrichtungsseite oder direkt
-zur Erzeugung eines Berichts gestartet werden. Der Server kann Daten außerdem
-automatisch täglich aktualisieren.
+zur Erzeugung eines Berichts gestartet werden. Der Server aktualisiert täglich
+um 05:30 Uhr den jüngsten abgeschlossenen Tag in der Anlagen-Zeitzone.
 
 ## Voraussetzungen
 
@@ -32,14 +32,15 @@ py -3.14 -m venv .venv
 ### Linux oder macOS
 
 ```bash
-python3.14 -m venv .venv
+python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-Falls Python 3.14 nicht installiert ist, installiere es zuerst oder verwende
-eine Python-Version, für die alle Projektabhängigkeiten passende Pakete
-anbieten.
+Python 3.14 wird unter Windows empfohlen, da `pvlib` die native Abhängigkeit
+`h5py` benötigt. Auf Raspberry Pi OS kannst du dessen Python 3.11 oder neuer
+verwenden. Falls pip `h5py` aus dem Quellcode bauen muss, installiere die
+Entwicklungsdateien wie im Raspberry-Pi-Abschnitt beschrieben.
 
 ## Konfiguration
 
@@ -93,6 +94,65 @@ python pv_app.py serve --port 9000
 python pv_app.py serve --no-browser
 python pv_app.py serve --no-schedule
 ```
+
+### Raspberry Pi im Heimnetz betreiben
+
+Installiere Git, Python mit venv-Unterstützung und die Build-Abhängigkeiten für
+Pakete wie `h5py`:
+
+```bash
+sudo apt update
+sudo apt install -y git python3 python3-venv python3-dev build-essential pkg-config libhdf5-dev
+git clone <REPOSITORY-URL> ~/pv-app-raspi
+cd ~/pv-app-raspi
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -r requirements.txt
+cp .env.example .env
+nano .env
+```
+
+Trage die AlphaESS-Zugangsdaten und Anlagenwerte in `.env` ein. Starte den
+Server zum Testen mit:
+
+```bash
+.venv/bin/python pv_app.py serve --host 0.0.0.0 --no-browser
+```
+
+Ermittle die IP-Adresse des Pi (`hostname -I`) und öffne auf einem anderen
+Gerät im selben Netzwerk `http://<PI-IP>:8765`. Der Server stellt im Netzwerk
+nur den Bericht bereit. Einrichtungsseite und schreibende API-Endpunkte bleiben
+auf lokale Zugriffe am Pi beschränkt. Der Bericht ist im Heimnetz ohne Anmeldung
+lesbar; gib den Port nicht ins Internet frei und verwende bei Bedarf eine
+Firewall-Regel, die nur dein lokales Netz zulässt.
+
+Für den automatischen Start beim Booten ist eine systemd-User-Unit enthalten.
+Sie erwartet, dass das Repository `~/pv-app-raspi` heißt und die virtuelle
+Umgebung `.venv` darin liegt:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/pv-tagesbericht.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now pv-tagesbericht
+sudo loginctl enable-linger "$USER"
+```
+
+Passe bei einem anderen Installationspfad `WorkingDirectory` und `ExecStart`
+in der Unit-Datei an. Status und Logs:
+
+```bash
+systemctl --user status pv-tagesbericht
+journalctl --user -u pv-tagesbericht -f
+```
+
+Der Zeitplan startet einmal täglich um `UPDATE_TIME` (Standard `05:30`). Dabei
+wird der jüngste abgeschlossene Tag erneut von AlphaESS abgerufen; der laufende
+Tag wird nicht als unvollständiger Datensatz im Dashboard angezeigt. Der Pi
+muss um die geplante Uhrzeit eingeschaltet und mit dem Netzwerk verbunden sein.
+Wird der Server erst später an diesem Tag gestartet, holt er den Lauf nach; nach
+einem fehlgeschlagenen Versuch gibt es an diesem Tag keinen zweiten Versuch.
+Die Zeitzone für den Zeitplan ist der Wert von `TIMEZONE`.
 
 ### Bericht direkt erzeugen
 
@@ -160,6 +220,7 @@ wird dieser Test übersprungen.
 │   └── styles.css              Darstellung
 ├── tests/                     Python-Tests und Test-Hilfen
 │   └── frontend/               Optionale JavaScript-Tests
+├── deploy/                    systemd-Beispiel für den Raspberry Pi
 ├── tools/                     Entwicklungs- und Diagnosewerkzeuge
 ├── analyze_pv.py              Optionales PVGIS-Referenzanalyse-Skript
 ├── compare_daily.py            Optionaler manueller Tagesvergleich

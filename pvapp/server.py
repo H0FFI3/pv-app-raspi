@@ -28,6 +28,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlsplit
+from zoneinfo import ZoneInfo
 
 from . import alphaess_client, paths, settings, storage
 from .config import Config, ConfigError, config_from_env, effective_env, env_file_candidates
@@ -105,7 +106,7 @@ class AppState:
     def scheduler_settings(self):
         config, _ = self.config()
         usable = bool(config and config.alphaess_app_id and config.alphaess_app_secret)
-        return usable, (config.update_time if config else time(6, 0)), (config.timezone if config else None)
+        return usable, (config.update_time if config else time(5, 30)), (config.timezone if config else None)
 
 
 # ------------------------------------------------------------------------------ Handler
@@ -207,7 +208,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             config, _ = state.config()
             schedule = ""
             if config:
-                schedule = next_slot_text(datetime.now(), config.update_time, state.updater.status.read())
+                schedule = next_slot_text(
+                    datetime.now(ZoneInfo(config.timezone)), config.update_time, state.updater.status.read()
+                )
             return {"status": status, "schedule": schedule}
 
         def dashboard(self) -> None:
@@ -226,7 +229,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             if self.client_is_loopback() and self.host_is_local():
                 state.updater.poll()
                 status = describe_status(state.updater.status.read(), state.updater.running())
-                schedule = next_slot_text(datetime.now(), config.update_time, state.updater.status.read())
+                schedule = next_slot_text(
+                    datetime.now(ZoneInfo(config.timezone)), config.update_time, state.updater.status.read()
+                )
                 extra = server_bar(state.token, status, schedule)
             self.send_html(render_report(records, paths.resource_root(), extra))
 
@@ -327,7 +332,7 @@ def already_running(port: int) -> bool:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=f"{paths.APP_NAME} serve",
-        description="Lokaler Server: Bericht, Einrichtungsseite und tägliche Aktualisierung.",
+        description="Dashboard-Server mit täglicher Aktualisierung.",
     )
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Port (Standard {DEFAULT_PORT}).")
     parser.add_argument("--host", default="127.0.0.1", help="Adresse (Standard 127.0.0.1 = nur dieser Rechner). Mit 0.0.0.0 ist nur der Bericht im Netz sichtbar; Einrichtung und Aktualisierung bleiben lokal.")

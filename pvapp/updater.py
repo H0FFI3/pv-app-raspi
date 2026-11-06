@@ -1,6 +1,6 @@
 """Aktualisierung als eigener Prozess, Status-Datei und Zeitplan für den Serve-Modus.
 
-Die Aktualisierung läuft als Kindprozess (``PV-Tagesbericht.exe --no-open``): Der Server bleibt klein
+Die Aktualisierung läuft als Kindprozess (``python pv_app.py --no-open``): Der Server bleibt klein
 (kein pandas/pvlib im Speicher), ein Absturz der Berechnung reißt ihn nicht mit, und der Speicher wird
 nach jedem Lauf wieder frei. Leichtgewichtig: importiert weder pandas noch pvlib.
 """
@@ -21,8 +21,6 @@ from . import paths
 
 log = logging.getLogger(__name__)
 
-RETRY_MINUTES = 30
-MAX_ATTEMPTS_PER_DAY = 3
 LOG_TAIL_LINES = 40
 
 
@@ -51,10 +49,17 @@ class StatusStore:
 
 
 def update_command() -> list[str]:
-    """Befehl für die Aktualisierung: die EXE selbst bzw. ``python pv_app.py``."""
+    """Aktualisiert den jüngsten abgeschlossenen Tag erneut."""
     if paths.is_frozen():
-        return [sys.executable, "--no-open", "--no-report"]
-    return [sys.executable, str(paths.project_root() / "pv_app.py"), "--no-open", "--no-report"]
+        return [sys.executable, "--no-open", "--no-report", "--refresh-days", "1"]
+    return [
+        sys.executable,
+        str(paths.project_root() / "pv_app.py"),
+        "--no-open",
+        "--no-report",
+        "--refresh-days",
+        "1",
+    ]
 
 
 def last_update_log_path() -> Path:
@@ -96,14 +101,14 @@ class Updater:
         *,
         command: Callable[[], list[str]] = update_command,
         popen: Callable[..., subprocess.Popen] = subprocess.Popen,
-        now: Callable[[], datetime] = datetime.now,
+        now: Callable[[], datetime] | None = None,
         log_path: Callable[[], Path] = last_update_log_path,
         output_path: Callable[[], Path] | None = None,
     ) -> None:
         self.status = status
         self._command = command
         self._popen = popen
-        self._now = now
+        self._now = now or (lambda: datetime.now().astimezone())
         self._log_path = log_path
         self._output_path = output_path or (lambda: self._log_path().with_suffix(".out"))
         self._process: subprocess.Popen | None = None
@@ -200,47 +205,21 @@ class Updater:
             self._close_log()
 
 
-def due(
-    now: datetime,
-    update_time: time,
-    status: dict,
-    *,
-    retry_minutes: int = RETRY_MINUTES,
-    max_attempts: int = MAX_ATTEMPTS_PER_DAY,
-) -> bool:
-    """Soll jetzt eine geplante Aktualisierung starten?
+def due(now: datetime, start_time: time, status: dict) -> bool:
+    """Soll heute der geplante Lauf starten? Es wird pro Tag höchstens einmal versucht."""
+    if now.time().replace(tzinfo=None) < start_time:
+        return False
 
-    - Heute schon erfolgreich: nein.
-    - Noch nie erfolgreich (erster Start): sofort.
-    - Sonst ab ``update_time``; nach einem Fehler frühestens nach ``retry_minutes`` und höchstens
-      ``max_attempts`` Versuche pro Tag. Wurde der Rechner zur Uhrzeit nicht betrieben, läuft die
-      Aktualisierung beim nächsten Start nach (Nachholen).
-    """
     today = now.date().isoformat()
     if status.get("last_success_date") == today:
         return False
-    if status.get("last_success_date") is None:
-        attempts = status.get("attempts", 0) if status.get("attempts_date") == today else 0
-        return _retry_allowed(now, status, attempts, retry_minutes, max_attempts)
-    slot = datetime.combine(now.date(), update_time, tzinfo=now.tzinfo)
-    if now < slot:
-        return False
-    attempts = status.get("attempts", 0) if status.get("attempts_date") == today else 0
-    return _retry_allowed(now, status, attempts, retry_minutes, max_attempts)
-
-
-def _retry_allowed(now: datetime, status: dict, attempts: int, retry_minutes: int, max_attempts: int) -> bool:
-    if attempts >= max_attempts:
-        return False
     started = status.get("last_started")
-    if attempts and started:
+    if started:
         try:
-            last = datetime.fromisoformat(started)
+            last_started = datetime.fromisoformat(started)
         except ValueError:
             return True
-        if last.tzinfo is None and now.tzinfo is not None:
-            last = last.replace(tzinfo=now.tzinfo)
-        if now - last < timedelta(minutes=retry_minutes):
+        if last_started.date() == now.date():
             return False
     return True
 
@@ -262,11 +241,18 @@ def describe_status(status: dict, running: bool) -> dict:
 
 
 def next_slot_text(now: datetime, update_time: time, status: dict) -> str:
-    done_today = status.get("last_success_date") == now.date().isoformat()
-    if not done_today and now.time() >= update_time:
+    today = now.date().isoformat()
+    started = status.get("last_started", "")
+    try:
+        started_today = datetime.fromisoformat(started).date().isoformat() == today
+    except ValueError:
+        started_today = False
+    done_today = started_today or status.get("last_success_date") == today
+    if not done_today and now.time().replace(tzinfo=None) >= update_time:
         return "Nächste Aktualisierung: sobald möglich"
-    day = now.date() + timedelta(days=1) if done_today else now.date()
-    return f"Nächste Aktualisierung: {day.strftime('%d.%m.')} um {update_time.strftime('%H:%M')}"
+    run_date = now.date() + timedelta(days=1) if done_today else now.date()
+    next_run = datetime.combine(run_date, update_time, tzinfo=now.tzinfo)
+    return f"Nächste Aktualisierung: {next_run.strftime('%d.%m. um %H:%M')}"
 
 
 class Scheduler(threading.Thread):

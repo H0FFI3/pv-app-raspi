@@ -1,0 +1,14 @@
+[Unit]
+Description=PV-Tagesbericht Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/pv-app-raspi
+ExecStart=%h/pv-app-raspi/.venv/bin/python %h/pv-app-raspi/pv_app.py serve --host 0.0.0.0 --no-browser
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

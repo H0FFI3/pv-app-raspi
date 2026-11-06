@@ -120,7 +120,7 @@ def test_current_values_show_defaults_and_percent_and_never_the_secret():
 
 def test_unconfigured_state_uses_helpful_defaults():
     values = settings.current_values({})
-    assert values["TIMEZONE"] == "Europe/Berlin" and values["AZIMUTH_EAST_DEG"] == "90" and values["UPDATE_TIME"] == "06:00"
+    assert values["TIMEZONE"] == "Europe/Berlin" and values["AZIMUTH_EAST_DEG"] == "90" and values["UPDATE_TIME"] == "05:30"
     assert values["LATITUDE"] == ""
     assert settings.is_configured({}) is False and not settings.has_stored_secret({})  # nichts gespeichert
 
