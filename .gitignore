@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+data/
+*.spec
+dashboard.html
+pv_expected_tmy.json
+pv_daily_comparison.json
+pv-tagesbericht.csv
+node_modules/
+.pytest_cache/
+package-lock.json
