@@ -12,8 +12,9 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
 import threading
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -155,8 +156,18 @@ class Updater:
                 )
             except OSError as error:
                 log.error("Aktualisierung konnte nicht gestartet werden: %s", error)
-                self.status.update(last_started=now.isoformat(timespec="seconds"), last_finished=now.isoformat(timespec="seconds"),
-                                   last_ok=False, last_trigger=trigger, last_message=f"Start nicht möglich: {error}")
+                today = now.date().isoformat()
+                previous = self.status.read()
+                attempts = previous.get("attempts", 0) if previous.get("attempts_date") == today else 0
+                self.status.update(
+                    last_started=now.isoformat(timespec="seconds"),
+                    last_finished=now.isoformat(timespec="seconds"),
+                    last_ok=False,
+                    last_trigger=trigger,
+                    last_message=f"Start nicht möglich: {error}",
+                    attempts_date=today,
+                    attempts=attempts + 1,
+                )
                 self._close_log()
                 return False
             self._trigger = trigger
@@ -179,6 +190,7 @@ class Updater:
         self._close_log()
         now = self._now()
         tail = read_log_tail(self._log_path()) or read_log_tail(self._output_path())
+        previous = self.status.read()
         ok = code == 0
         changes = {
             "last_finished": now.isoformat(timespec="seconds"),
@@ -187,8 +199,55 @@ class Updater:
         }
         if ok:
             changes["last_success_date"] = now.date().isoformat()
+            changes["last_success_at"] = now.isoformat(timespec="seconds")
         self.status.update(**changes)
+        run = {
+            "started_at": previous.get("last_started"),
+            "finished_at": now.isoformat(timespec="seconds"),
+            "duration_seconds": _run_duration(previous.get("last_started"), now),
+            "trigger": self._trigger,
+            "ok": ok,
+            "exit_code": code,
+        }
+        summary = _read_last_run_summary(previous.get("last_started"))
+        for key in (
+            "days_ok",
+            "days_skipped_older",
+            "skipped_days",
+            "signals_updated",
+            "weather_upgrades",
+            "data_api_calls",
+            "error_classes",
+        ):
+            if key in summary:
+                run[key] = summary[key]
+        self._append_run(
+            run
+        )
         log.info("Aktualisierung beendet: %s", "erfolgreich" if ok else f"Fehler (Code {code})")
+
+    def _append_run(self, run: dict) -> None:
+        path = self.status.path.with_name("runs.jsonl")
+        try:
+            rows = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+            rows.append(json.dumps(run, ensure_ascii=False, separators=(",", ":")))
+            rows = rows[-200:]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+            try:
+                with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                    stream.write("\n".join(rows) + "\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, path)
+            except BaseException:
+                try:
+                    os.unlink(temporary)
+                except OSError:
+                    pass
+                raise
+        except OSError as error:
+            log.warning("Laufhistorie konnte nicht gespeichert werden: %s", error)
 
     def _close_log(self) -> None:
         if self._log_handle is not None:
@@ -205,13 +264,21 @@ class Updater:
             self._close_log()
 
 
-def due(now: datetime, start_time: time, status: dict) -> bool:
-    """Soll heute der geplante Lauf starten? Es wird pro Tag höchstens einmal versucht."""
+def due(
+    now: datetime,
+    start_time: time,
+    status: dict,
+    backoff_minutes: tuple[int, int] = (15, 60),
+) -> bool:
+    """Soll heute ein Lauf starten? Fehler werden höchstens dreimal mit Backoff wiederholt."""
     if now.time().replace(tzinfo=None) < start_time:
         return False
 
     today = now.date().isoformat()
     if status.get("last_success_date") == today:
+        return False
+    attempts = status.get("attempts", 0) if status.get("attempts_date") == today else 0
+    if attempts >= 3:
         return False
     started = status.get("last_started")
     if started:
@@ -219,9 +286,106 @@ def due(now: datetime, start_time: time, status: dict) -> bool:
             last_started = datetime.fromisoformat(started)
         except ValueError:
             return True
-        if last_started.date() == now.date():
+        if last_started.date() == now.date() and status.get("last_ok") is not False:
+            return False
+    if attempts:
+        finished = status.get("last_finished")
+        if not finished:
+            return False
+        try:
+            last_finished = datetime.fromisoformat(finished)
+        except ValueError:
+            return False
+        if now.tzinfo is None and last_finished.tzinfo is not None:
+            last_finished = last_finished.replace(tzinfo=None)
+        elif now.tzinfo is not None and last_finished.tzinfo is None:
+            last_finished = last_finished.replace(tzinfo=now.tzinfo)
+        backoff = backoff_minutes[min(attempts - 1, 1)]
+        if now < last_finished + timedelta(minutes=backoff):
             return False
     return True
+
+
+def _run_duration(started: str | None, finished: datetime) -> float | None:
+    if not started:
+        return None
+    try:
+        start = datetime.fromisoformat(started)
+    except ValueError:
+        return None
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    if finished.tzinfo is None:
+        finished = finished.replace(tzinfo=timezone.utc)
+    return max(0.0, (finished - start).total_seconds())
+
+
+def _read_last_run_summary(expected_started: str | None = None) -> dict:
+    try:
+        value = json.loads(paths.last_run_path().read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as error:
+        log.warning("Laufzusammenfassung ist nicht lesbar (%s).", error)
+        return {}
+    if not isinstance(value, dict) or not expected_started or not value.get("started_at"):
+        return {}
+    try:
+        expected = datetime.fromisoformat(expected_started)
+        actual = datetime.fromisoformat(value["started_at"])
+        if expected.tzinfo is None:
+            expected = expected.replace(tzinfo=timezone.utc)
+        if actual.tzinfo is None:
+            actual = actual.replace(tzinfo=timezone.utc)
+        if abs((actual - expected).total_seconds()) > 300:
+            return {}
+    except (TypeError, ValueError):
+        return {}
+    return value
+
+
+def recent_runs(path: Path, limit: int = 20) -> list[dict]:
+    """Liest sichere, für das Dashboard geeignete Felder aus der Laufhistorie."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()[-limit:]
+    except FileNotFoundError:
+        return []
+    except OSError as error:
+        log.warning("Laufhistorie konnte nicht gelesen werden: %s", error)
+        return []
+    runs = []
+    for line in lines:
+        try:
+            item = json.loads(line)
+        except ValueError:
+            log.warning("Ungültiger Eintrag in der Laufhistorie wird übersprungen.")
+            continue
+        if not isinstance(item, dict):
+            continue
+        skipped = item.get("skipped_days")
+        skipped_count = len(skipped) if isinstance(skipped, list) else 0
+        try:
+            skipped_count += max(0, int(item.get("days_skipped_older", 0)))
+        except (TypeError, ValueError):
+            pass
+        runs.append({
+            "started_at": item.get("started_at"),
+            "finished_at": item.get("finished_at"),
+            "duration_seconds": item.get("duration_seconds"),
+            "days_ok": item.get("days_ok", 0),
+            "days_skipped": skipped_count,
+            "ok": bool(item.get("ok")),
+        })
+    return list(reversed(runs))
+    try:
+        start = datetime.fromisoformat(started)
+        if start.tzinfo is None and finished.tzinfo is not None:
+            start = start.replace(tzinfo=finished.tzinfo)
+        elif finished.tzinfo is None and start.tzinfo is not None:
+            start = start.replace(tzinfo=None)
+        return max(0.0, (finished - start).total_seconds())
+    except ValueError:
+        return None
 
 
 def describe_status(status: dict, running: bool) -> dict:
@@ -262,7 +426,7 @@ class Scheduler(threading.Thread):
     def __init__(
         self,
         updater: Updater,
-        get_settings: Callable[[], tuple[bool, time, str | None]],
+        get_settings: Callable[[], tuple],
         *,
         interval_seconds: float = 30.0,
         now: Callable[[], datetime] | None = None,
@@ -277,7 +441,9 @@ class Scheduler(threading.Thread):
     def tick(self) -> bool:
         """Ein Prüfschritt (für Tests öffentlich). ``True``, wenn eine Aktualisierung gestartet wurde."""
         self.updater.poll()
-        configured, update_time, timezone = self._get_settings()
+        settings = self._get_settings()
+        configured, update_time, timezone = settings[:3]
+        backoff = settings[3] if len(settings) > 3 else (15, 60)
         if not configured or self.updater.running():
             return False
         if self._now is not None:
@@ -288,7 +454,7 @@ class Scheduler(threading.Thread):
             now = datetime.now(ZoneInfo(timezone))
         else:
             now = datetime.now().astimezone()
-        if due(now, update_time, self.updater.status.read()):
+        if due(now, update_time, self.updater.status.read(), backoff):
             return self.updater.start("schedule")
         return False
 

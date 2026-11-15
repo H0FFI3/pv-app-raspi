@@ -24,6 +24,7 @@
     <main class="dashboard">
       <section class="page-heading" aria-labelledby="page-title">
         <div>
+          <p class="dashboard-hint">Modellversionen farblich markiert</p>
           <p class="eyebrow">ERTRAG <span aria-hidden="true">/</span> MODELL <span aria-hidden="true">/</span> SONNE</p>
           <h1 id="page-title">PV-Tagesbericht</h1>
           <p class="heading-note">Erzeugung, Wetterpotenzial und Sonne im täglichen Vergleich.</p>
@@ -33,6 +34,9 @@
           <time id="latest-date">Noch keine Daten</time>
         </div>
       </section>
+
+      <p class="model-warning" id="model-provenance-warning" role="status" hidden></p>
+      <p class="public-status" id="public-status" role="status" aria-live="polite" hidden></p>
 
       <section class="metrics" aria-label="Kennzahlen des letzten Tages">
         <article class="metric metric-actual">
@@ -49,6 +53,21 @@
           <div class="metric-heading"><h2>Sonnenstunden</h2><span class="metric-index">03</span></div>
           <p class="metric-value"><span id="sunshine-value">-</span><span class="metric-unit">h</span></p>
           <p class="metric-caption">WMO-Sonnenscheindauer</p>
+        </article>
+        <article class="metric">
+          <div class="metric-heading"><h2>Spezifischer Ertrag</h2><span class="metric-index">04</span></div>
+          <p class="metric-value"><span id="specific-yield-value">-</span><span class="metric-unit">kWh/kWp</span></p>
+          <p class="metric-caption">Ist-Ertrag je installierter Leistung</p>
+        </article>
+        <article class="metric">
+          <div class="metric-heading"><h2>Performance Ratio</h2><span class="metric-index">05</span></div>
+          <p class="metric-value"><span id="performance-ratio-value">-</span><span class="metric-unit">%</span></p>
+          <p class="metric-caption">Normiert auf Einstrahlung in Modulebene</p>
+        </article>
+        <article class="metric">
+          <div class="metric-heading"><h2>Einstrahlung in Modulebene</h2><span class="metric-index">06</span></div>
+          <p class="metric-value"><span id="poa-value">-</span><span class="metric-unit">kWh/m²</span></p>
+          <p class="metric-caption">Modulanzahl-gewichtete POA</p>
         </article>
       </section>
 
@@ -82,7 +101,8 @@
           </div>
           <div class="legend" aria-label="Diagrammlegende">
             <span><i class="legend-swatch actual-swatch" aria-hidden="true"></i>Ist-Ertrag</span>
-            <span><i class="legend-swatch potential-swatch" aria-hidden="true"></i>Potentieller Ertrag</span>
+            <span><i class="legend-swatch weather-archive-swatch" aria-hidden="true"></i>Potenzial · Open-Meteo-Archiv</span>
+            <span><i class="legend-swatch weather-forecast-swatch" aria-hidden="true"></i>Potenzial · Open-Meteo-Forecast</span>
           </div>
         </article>
         <article class="chart-panel sunshine-panel">
@@ -94,6 +114,10 @@
             <canvas id="sunshine-chart" aria-label="Tägliche Sonnenstunden. Mit Maus oder Fingertipp Tageswerte anzeigen." role="img" tabindex="0" aria-describedby="sunshine-tooltip" data-tooltip-id="sunshine-tooltip"></canvas>
             <div class="chart-tooltip" id="sunshine-tooltip" role="tooltip" hidden></div>
             <div class="empty-state empty-state-compact" id="sunshine-empty" hidden><span>Noch keine Sonnenscheindaten</span></div>
+          </div>
+          <div class="legend weather-legend" aria-label="Legende Wetterdatenquelle">
+            <span><i class="legend-swatch weather-archive-swatch" aria-hidden="true"></i>Open-Meteo-Archiv</span>
+            <span><i class="legend-swatch weather-forecast-swatch" aria-hidden="true"></i>Open-Meteo-Forecast</span>
           </div>
         </article>
       </section>
@@ -110,18 +134,24 @@
             <div class="empty-state empty-state-compact" id="ratio-empty" hidden><span>Noch keine Daten</span></div>
           </div>
           <div class="legend" aria-label="Legende Verhältnis">
-            <span><i class="legend-swatch actual-swatch" aria-hidden="true"></i>Ist / Potenzial</span>
             <span><i class="legend-swatch reference-swatch" aria-hidden="true"></i>100 %</span>
+            <span><i class="legend-swatch weather-archive-swatch weather-bar-swatch" aria-hidden="true"></i>Ist/Potenzial – Open-Meteo-Archiv</span>
+            <span><i class="legend-swatch weather-forecast-swatch weather-bar-swatch" aria-hidden="true"></i>Ist/Potenzial – Open-Meteo-Forecast</span>
           </div>
+          <p class="chart-hint">100 % bedeutet: Der Tagesertrag entspricht genau dem modellierten Potenzial. Werte darunter zeigen Einschränkungen durch Abregelung, Verschattung, Ausfälle oder Wetter.</p>
         </article>
       </section>
 
       <section class="hourly-section" aria-labelledby="hourly-title">
         <div class="section-heading hourly-heading">
           <div><p class="eyebrow">TAGESPROFIL</p><h2 id="hourly-title">Stundenverlauf</h2></div>
-          <label class="hourly-date-label" for="hourly-date">Tag
-            <select id="hourly-date" disabled aria-label="Tag für Stundenverlauf"></select>
-          </label>
+          <div class="hourly-date-picker" aria-label="Tag-Auswahl für Stundenverlauf">
+            <button type="button" class="hourly-nav" id="hourly-prev" aria-label="Vorheriger Tag">&#8592;</button>
+            <label class="hourly-date-label" for="hourly-date">Tag
+              <select id="hourly-date" disabled aria-label="Tag für Stundenverlauf"></select>
+            </label>
+            <button type="button" class="hourly-nav" id="hourly-next" aria-label="Nächster Tag">&#8594;</button>
+          </div>
         </div>
         <article class="chart-panel hourly-panel">
           <div class="chart-heading">
@@ -140,6 +170,7 @@
             <span><i class="legend-swatch potential-swatch" aria-hidden="true"></i>Potentieller Ertrag</span>
             <span id="hourly-curtailed-legend" hidden><i class="legend-swatch curtailed-swatch" aria-hidden="true"></i>Abregelung wahrscheinlich</span>
           </div>
+          <p class="chart-hint">Grün zeigt die gemessene Leistung je Stunde, die farbige Linie das modellierte Potenzial. Wenn die grüne Kurve deutlich darunter liegt, ist der Wirkungsgrad geringer als erwartet oder es greift Abregelung.</p>
           <p class="chart-hint" id="hourly-curtailment-note"></p>
         </article>
         <article class="chart-panel profile-panel">
@@ -161,16 +192,175 @@
         </article>
       </section>
 
+      <section class="analysis-section" aria-labelledby="analysis-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">ANALYSE</p><h2 id="analysis-title">Modellgüte und Muster</h2></div>
+        </div>
+        <p class="chart-hint" id="analysis-metrics" aria-live="polite"></p>
+        <div class="analysis-grid">
+          <article class="chart-panel">
+            <div class="chart-heading">
+              <div><h3>Ist-Ertrag gegen Potenzial</h3><p>1:1-Referenz und lineare Regression je Tag</p></div>
+              <div class="chart-unit">kWh / Tag</div>
+            </div>
+            <div class="chart-wrap analysis-chart-wrap">
+              <canvas id="analysis-scatter" aria-label="Streudiagramm Ist-Ertrag gegen Potenzial mit 1 zu 1 Referenz und Regression" role="img" tabindex="0" aria-describedby="analysis-scatter-tooltip" data-tooltip-id="analysis-scatter-tooltip" hidden></canvas>
+              <div class="chart-tooltip" id="analysis-scatter-tooltip" role="tooltip" hidden></div>
+              <div class="empty-state empty-state-compact" id="analysis-scatter-empty"><span>Für die Auswertung werden mindestens zwei Tage mit Ist- und Potenzialwert benötigt.</span></div>
+            </div>
+            <p class="chart-hint" id="analysis-regression-note"></p>
+            <div class="legend" aria-label="Legende Streudiagramm">
+              <span><i class="legend-swatch actual-swatch" aria-hidden="true"></i>Tageswerte</span>
+              <span><i class="legend-swatch reference-swatch" aria-hidden="true"></i>1:1-Linie</span>
+              <span><i class="legend-swatch regression-swatch" aria-hidden="true"></i>Regression</span>
+            </div>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading">
+              <div><h3>Residuen je Tag</h3><p>Ist-Ertrag minus Modellpotenzial</p></div>
+              <div class="chart-unit">kWh / Tag</div>
+            </div>
+            <div class="chart-wrap analysis-chart-wrap">
+              <canvas id="analysis-residuals" aria-label="Tägliche Residuen: Ist-Ertrag minus Potenzial" role="img" tabindex="0" aria-describedby="analysis-residuals-tooltip" data-tooltip-id="analysis-residuals-tooltip" hidden></canvas>
+              <div class="chart-tooltip" id="analysis-residuals-tooltip" role="tooltip" hidden></div>
+              <div class="empty-state empty-state-compact" id="analysis-residuals-empty"><span>Residuen erscheinen ab zwei vollständigen Tageswerten.</span></div>
+            </div>
+            <div class="legend" aria-label="Legende Residuen">
+              <span><i class="legend-swatch residual-positive" aria-hidden="true"></i>Über Modell</span>
+              <span><i class="legend-swatch residual-negative" aria-hidden="true"></i>Unter Modell</span>
+            </div>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading">
+              <div><h3>Verteilung Ist / Potenzial</h3><p>Häufigkeit des Tagesverhältnisses</p></div>
+              <div class="chart-unit">% der Tage</div>
+            </div>
+            <div class="chart-wrap analysis-chart-wrap">
+              <canvas id="analysis-histogram" aria-label="Histogramm der täglichen Ist- zu Potenzial-Verhältnisse" role="img" tabindex="0" aria-describedby="analysis-histogram-tooltip" data-tooltip-id="analysis-histogram-tooltip" hidden></canvas>
+              <div class="chart-tooltip" id="analysis-histogram-tooltip" role="tooltip" hidden></div>
+              <div class="empty-state empty-state-compact" id="analysis-histogram-empty"><span>Das Histogramm erscheint ab drei gültigen Tagesverhältnissen.</span></div>
+            </div>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading">
+              <div><h3>30-Tage-Trend</h3><p>Gleitender Median von Ist-Ertrag und Potenzial</p></div>
+              <div class="chart-unit">kWh / Tag</div>
+            </div>
+            <div class="chart-wrap analysis-chart-wrap">
+              <canvas id="analysis-trend" aria-label="Gleitender 30-Tage-Median von Ist-Ertrag und Potenzial" role="img" tabindex="0" aria-describedby="analysis-trend-tooltip" data-tooltip-id="analysis-trend-tooltip" hidden></canvas>
+              <div class="chart-tooltip" id="analysis-trend-tooltip" role="tooltip" hidden></div>
+              <div class="empty-state empty-state-compact" id="analysis-trend-empty"><span>Für einen Trend werden mindestens sieben Tageswerte benötigt.</span></div>
+            </div>
+            <div class="legend" aria-label="Legende 30-Tage-Trend">
+              <span><i class="legend-swatch actual-swatch" aria-hidden="true"></i>Ist-Ertrag</span>
+              <span><i class="legend-swatch potential-swatch" aria-hidden="true"></i>Potenzial</span>
+            </div>
+            <p class="chart-hint" id="analysis-annual-note"></p>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading">
+              <div><h3>Stunden-Heatmap</h3><p>Ist / Potenzial nach Stunde und Tag</p></div>
+              <div class="chart-unit">% des Potenzials</div>
+            </div>
+            <div class="chart-wrap analysis-heatmap-wrap">
+              <canvas id="analysis-heatmap" aria-label="Heatmap des stündlichen Ist- zu Potenzial-Verhältnisses nach Tag" role="img" tabindex="0" aria-describedby="analysis-heatmap-tooltip" data-tooltip-id="analysis-heatmap-tooltip" hidden></canvas>
+              <div class="chart-tooltip" id="analysis-heatmap-tooltip" role="tooltip" hidden></div>
+              <div class="empty-state empty-state-compact" id="analysis-heatmap-empty"><span>Für die Heatmap werden gespeicherte Stundenprofile mit Ist- und Potenzialwerten benötigt.</span></div>
+            </div>
+            <div class="legend" aria-label="Legende Stunden-Heatmap">
+              <span><i class="legend-swatch heatmap-low" aria-hidden="true"></i>unter 50 %</span>
+              <span><i class="legend-swatch heatmap-50" aria-hidden="true"></i>50–60 %</span>
+              <span><i class="legend-swatch heatmap-60" aria-hidden="true"></i>60–70 %</span>
+              <span><i class="legend-swatch heatmap-70" aria-hidden="true"></i>70–80 %</span>
+              <span><i class="legend-swatch heatmap-80" aria-hidden="true"></i>80–90 %</span>
+              <span><i class="legend-swatch heatmap-90" aria-hidden="true"></i>90–100 %</span>
+              <span><i class="legend-swatch heatmap-high" aria-hidden="true"></i>über 100 %</span>
+            </div>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading">
+              <div><h3>Abregelung nach Monat</h3><p>Ermittelte entgangene Energie, nach Ursache</p></div>
+              <div class="chart-unit">kWh / Monat</div>
+            </div>
+            <div class="chart-wrap analysis-chart-wrap">
+              <canvas id="analysis-curtailment" aria-label="Monatliche entgangene Energie durch Einspeiselimit und vollen Akku" role="img" tabindex="0" aria-describedby="analysis-curtailment-tooltip" data-tooltip-id="analysis-curtailment-tooltip" hidden></canvas>
+              <div class="chart-tooltip" id="analysis-curtailment-tooltip" role="tooltip" hidden></div>
+              <div class="empty-state empty-state-compact" id="analysis-curtailment-empty"><span>Für diese Auswertung werden Stunden mit erkannter Abregelungsursache benötigt.</span></div>
+            </div>
+            <div class="legend" aria-label="Legende Abregelungsursachen">
+              <span><i class="legend-swatch limit-swatch" aria-hidden="true"></i>Einspeiselimit</span>
+              <span><i class="legend-swatch battery-swatch" aria-hidden="true"></i>Akku voll</span>
+            </div>
+            <p class="chart-hint">Schätzung aus den markierten Stunden (Potenzial minus Ist); Modellabweichungen können enthalten sein.</p>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading"><div><h3>Auffällige Tage</h3><p>Robuste Abweichung des Tagesverhältnisses (MAD)</p></div></div>
+            <div class="analysis-list empty-state-compact" id="analysis-anomalies" aria-live="polite"></div>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading"><div><h3>Soll-Ist-Referenz</h3><p>PVGIS-TMY und Ist-Ertrag je Monat</p></div></div>
+            <div class="empty-state empty-state-compact" id="analysis-reference-empty"><span id="analysis-reference-empty-text">Keine PVGIS-TMY-Referenz vorhanden. Mit <code>python analyze_pv.py</code> lässt sie sich berechnen.</span></div>
+            <div class="chart-wrap analysis-reference-wrap">
+              <canvas id="analysis-reference" aria-label="Balkendiagramm: monatlicher gemessener Ist-Ertrag und PVGIS-TMY-Soll für jeden Monat mit Tagesdaten" role="img" tabindex="0" aria-describedby="analysis-reference-tooltip" data-tooltip-id="analysis-reference-tooltip" hidden></canvas>
+              <div class="chart-tooltip" id="analysis-reference-tooltip" role="tooltip" hidden></div>
+            </div>
+            <div class="legend" aria-label="Legende Soll-Ist-Referenz">
+              <span><i class="legend-swatch actual-swatch" aria-hidden="true"></i>Ist-Ertrag</span>
+              <span><i class="legend-swatch reference-actual-swatch" aria-hidden="true"></i>PVGIS-TMY-Soll</span>
+            </div>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading"><div><h3>Energiesystem</h3><p>Eigenverbrauch, Autarkie, Netz und Akku</p></div></div>
+            <div class="chart-heading analysis-subheading">
+              <div><h4>Akku-Ladezustand</h4><p>Stundenverlauf des letzten Tages mit SOC-Messwerten</p></div>
+              <div class="chart-unit">% SOC</div>
+            </div>
+            <div class="chart-wrap analysis-chart-wrap">
+              <canvas id="analysis-soc" aria-label="Stündlicher Akku-Ladezustand" role="img" tabindex="0" aria-describedby="analysis-soc-tooltip" data-tooltip-id="analysis-soc-tooltip" hidden></canvas>
+              <div class="chart-tooltip" id="analysis-soc-tooltip" role="tooltip" hidden></div>
+              <div class="empty-state empty-state-compact" id="analysis-soc-empty"><span>Keine gespeicherten Akku-Ladezustände für einen Stundenverlauf vorhanden.</span></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section class="summary-section" aria-labelledby="summary-title">
         <div class="section-heading history-heading">
           <div><p class="eyebrow">SUMMEN</p><h2 id="summary-title">Zeiträume im Überblick</h2></div>
         </div>
         <div class="table-scroll">
           <table>
-            <thead><tr><th scope="col">Zeitraum</th><th scope="col">Tage</th><th scope="col">Ist-Ertrag</th><th scope="col">Potentieller Ertrag</th><th scope="col">Ist/Potenzial</th><th scope="col">Sonne</th><th scope="col">Abregelung</th></tr></thead>
+            <thead><tr><th scope="col">Zeitraum</th><th scope="col">Tage</th><th scope="col">Ist-Ertrag</th><th scope="col">Potentieller Ertrag</th><th scope="col">Ist/Potenzial</th><th scope="col">Sonne</th><th scope="col">kWh/kWp</th><th scope="col">POA kWh/m²</th><th scope="col">PR</th><th scope="col">Abregelung</th></tr></thead>
             <tbody id="summary-body">
-              <tr><td class="table-empty" colspan="7">Summen erscheinen nach dem ersten Datensatz.</td></tr>
+              <tr><td class="table-empty" colspan="10">Summen erscheinen nach dem ersten Datensatz.</td></tr>
             </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="completeness-section" aria-labelledby="completeness-title">
+        <div class="section-heading history-heading">
+          <div><p class="eyebrow">DATENLÜCKEN</p><h2 id="completeness-title">Datenvollständigkeit</h2></div>
+          <p class="history-count" id="completeness-summary"></p>
+        </div>
+        <div class="completeness-legend" aria-label="Legende Datenvollständigkeit">
+          <span><i class="completeness-swatch completeness-ok"></i>Vollständig</span>
+          <span><i class="completeness-swatch completeness-flagged"></i>Hinweis</span>
+          <span><i class="completeness-swatch completeness-missing"></i>Fehlt</span>
+          <span><i class="completeness-swatch completeness-skipped"></i>Außerhalb des Backfill-Fensters</span>
+        </div>
+        <div id="completeness-calendar" class="completeness-calendar" aria-live="polite"></div>
+        <p class="chart-hint">Ältere Lücken lassen sich mit einem größeren <code>BACKFILL_MAX_DAYS</code> und <code>--refresh-days</code> nachholen.</p>
+      </section>
+
+      <section class="run-history-section" aria-labelledby="run-history-title">
+        <div class="section-heading history-heading">
+          <div><p class="eyebrow">PIPELINE</p><h2 id="run-history-title">Letzte Läufe</h2></div>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th scope="col">Zeit</th><th scope="col">Dauer</th><th scope="col">Tage erfasst</th><th scope="col">Tage übersprungen</th><th scope="col">Ergebnis</th></tr></thead>
+            <tbody id="run-history-body"><tr><td class="table-empty" colspan="5">Laufhistorie ist im Server-Dashboard verfügbar.</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -191,7 +381,7 @@
       </section>
 
       <div class="page-notes">
-        <p>Das Potenzial ist ein Modellwert für ungestörten Betrieb: Abregelung (Einspeisebegrenzung, voller Akku) ist nicht enthalten, Verschattung nur, wenn sie in der Konfiguration aktiviert ist. Abweichungen zwischen Ist und Potenzial sind deshalb nicht automatisch Verschattung oder ein Defekt. Stunden mit „Abregelung wahrscheinlich“ sind eine Schätzung aus Akkustand und Netzeinspeisung; die angegebene Menge ist eine Obergrenze.</p>
+        <p>Das Potenzial ist ein Modellwert für ungestörten Betrieb: Abregelung (Einspeisebegrenzung, voller Akku) ist nicht enthalten, Verschattung nur, wenn sie in der Konfiguration aktiviert ist. Abweichungen zwischen Ist und Potenzial sind deshalb nicht automatisch Verschattung oder ein Defekt. Stunden mit „Abregelung wahrscheinlich“ sind eine Schätzung aus Akkustand und Netzeinspeisung. Die angezeigte Menge nutzt eine 30-Tage-Baseline; <code>lost_kwh_upper</code> bleibt die unkalibrierte Obergrenze.</p>
         <p id="source-note"></p>
       </div>
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -21,6 +22,7 @@ import pandas as pd
 import requests
 
 from .config import Config
+from .quality import build_quality
 
 log = logging.getLogger(__name__)
 
@@ -149,6 +151,7 @@ def load_weather(
     http_get: Callable[..., Any] | None = None,
     today: date | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    raw_data_callback: Callable[[str, date | None, Any], None] | None = None,
 ) -> WeatherData:
     """Lädt stündliche Wetterdaten für ``start``..``end`` (lokale Tage).
 
@@ -169,6 +172,8 @@ def load_weather(
         params = {**_request_params(config), "start_date": first.isoformat(), "end_date": min(last, today).isoformat()}
         try:
             payload = fetch_json(ARCHIVE_URL, params, http_get=http_get, sleep=sleep)
+            if raw_data_callback:
+                raw_data_callback("weather_hourly", None, {"source": "archive", "payload": payload})
             archive_frame, archive_sunshine, elevation = _weather_from_payload(payload, config.timezone)
         except (SourceError, KeyError, ValueError) as error:
             if mode == "archive":
@@ -183,6 +188,8 @@ def load_weather(
         params = {**_request_params(config), "past_days": past_days, "forecast_days": 2}
         try:
             payload = fetch_json(FORECAST_URL, params, http_get=http_get, sleep=sleep)
+            if raw_data_callback:
+                raw_data_callback("weather_hourly", None, {"source": "forecast", "payload": payload})
             forecast_frame, forecast_sunshine, forecast_elevation = _weather_from_payload(payload, config.timezone)
             elevation = forecast_elevation if elevation is None else elevation
         except (SourceError, KeyError, ValueError) as error:
@@ -316,22 +323,98 @@ def aggregate_hourly_pv_power(
 
     Die doppelte Stunde im Herbst erscheint als ein Eintrag "02:00".
     """
+    hourly, _ = aggregate_hourly_pv_power_with_quality(
+        samples, day, daily_energy_kwh, timezone
+    )
+    return hourly
+
+
+def _daylight_window(day: date, timezone: str, latitude: float, longitude: float) -> tuple[datetime, datetime]:
+    """Nähern die Sonnenauf- und -untergangszeit für die lokale Tagesabdeckung an."""
+    day_of_year = day.timetuple().tm_yday
+    gamma = 2 * math.pi / 365 * (day_of_year - 1)
+    declination = (
+        0.006918
+        - 0.399912 * math.cos(gamma)
+        + 0.070257 * math.sin(gamma)
+        - 0.006758 * math.cos(2 * gamma)
+        + 0.000907 * math.sin(2 * gamma)
+        - 0.002697 * math.cos(3 * gamma)
+        + 0.00148 * math.sin(3 * gamma)
+    )
+    latitude_rad = math.radians(max(-90.0, min(90.0, latitude)))
+    cosine_hour_angle = -math.tan(latitude_rad) * math.tan(declination)
+    if cosine_hour_angle >= 1:
+        return datetime.combine(day, datetime.min.time()), datetime.combine(day, datetime.min.time())
+    half_day_hours = 12.0 if cosine_hour_angle <= -1 else math.degrees(math.acos(cosine_hour_angle)) / 15
+    noon = datetime.combine(day, datetime.min.time()).replace(hour=12)
+    offset = noon.replace(tzinfo=ZoneInfo(timezone)).utcoffset()
+    utc_offset_hours = offset.total_seconds() / 3600 if offset else 0
+    solar_noon = 12 + (15 * utc_offset_hours - longitude) / 15
+    sunrise = datetime.combine(day, datetime.min.time()) + timedelta(hours=solar_noon - half_day_hours)
+    sunset = datetime.combine(day, datetime.min.time()) + timedelta(hours=solar_noon + half_day_hours)
+    return sunrise, sunset
+
+
+def aggregate_hourly_pv_power_with_quality(
+    samples: list[dict],
+    day: date,
+    daily_energy_kwh: float,
+    timezone: str,
+    *,
+    latitude: float = 0.0,
+    longitude: float = 0.0,
+    min_coverage: float = 0.8,
+    max_epv_deviation: float = 0.1,
+) -> tuple[dict[str, float], dict]:
+    """Stundenwerte plus unskaliertes Integral, Probenzahl und Tageslichtabdeckung."""
     frame = _samples_frame(samples, day, timezone)
     if len(frame) < 2:
-        return {}
+        return {}, build_quality(
+            n_samples=len(frame), coverage=0.0, integral_kwh=0.0,
+            epv=daily_energy_kwh, hourly=[],
+            min_coverage=min_coverage, max_epv_deviation=max_epv_deviation,
+        )
 
     times = pd.Series(frame.index, index=frame.index)
     intervals = (times.shift(-1) - times).dt.total_seconds()
     normal_intervals = intervals[(intervals > 0) & (intervals <= 600)]
     typical_interval = float(normal_intervals.median()) if not normal_intervals.empty else 300.0
+    raw_intervals = intervals.copy()
     intervals = intervals.fillna(typical_interval).clip(lower=0, upper=600)
     frame["sample_energy_kwh"] = frame["power_w"].clip(lower=0) * intervals / 3_600_000
 
     hourly_energy = frame.groupby(frame.index.floor("h"))["sample_energy_kwh"].sum()
     measured_total = float(hourly_energy.sum())
+    sunrise, sunset = _daylight_window(day, timezone, latitude, longitude)
+    daylight_seconds = max(0.0, (sunset - sunrise).total_seconds())
+    covered_seconds = 0.0
+    for position, (timestamp, seconds) in enumerate(zip(frame.index, intervals)):
+        original_interval = raw_intervals.iloc[position]
+        if pd.notna(original_interval) and (original_interval <= 0 or original_interval > 600):
+            continue
+        interval_start = timestamp.to_pydatetime()
+        interval_end = interval_start + timedelta(seconds=float(seconds))
+        covered_seconds += max(
+            0.0,
+            (min(interval_end, sunset) - max(interval_start, sunrise)).total_seconds(),
+        )
+    coverage = min(1.0, covered_seconds / daylight_seconds) if daylight_seconds else 0.0
+    quality = build_quality(
+        n_samples=len(frame),
+        coverage=coverage,
+        integral_kwh=measured_total,
+        epv=daily_energy_kwh,
+        hourly=[{"actual_kwh": value} for value in hourly_energy.to_numpy()],
+        min_coverage=min_coverage,
+        max_epv_deviation=max_epv_deviation,
+    )
     if measured_total > 0:
         hourly_energy *= max(0.0, daily_energy_kwh) / measured_total
-    return {timestamp.strftime("%H:00"): round(float(energy), 3) for timestamp, energy in hourly_energy.items()}
+    return (
+        {timestamp.strftime("%H:00"): round(float(energy), 3) for timestamp, energy in hourly_energy.items()},
+        quality,
+    )
 
 
 def aggregate_hourly_signals(
@@ -340,15 +423,27 @@ def aggregate_hourly_signals(
     timezone: str,
     soc_field: str = "cbat",
     feed_in_field: str = "feedIn",
+    feed_in_limit_w: float | None = None,
+    feed_in_tolerance: float = 0.95,
 ) -> dict[str, dict[str, float]]:
     """Stundenwerte für die Abregelungserkennung: ``soc_pct`` (Maximum der Stunde) und
-    ``feed_in_w`` (Mittelwert des Betrags der Netzleistung). Fehlt ein Feld, fehlt der Schlüssel."""
+    ``feed_in_w`` (Legacy-Mittelwert des Betrags), ``feed_in_max_w`` (größte Einspeiseprobe)
+    und bei gesetztem Limit ``feed_in_share_at_limit`` (Probenanteil am Limit).
+
+    Für AlphaESS ``feedIn`` gilt hier: positive Werte bedeuten Einspeisung, negative Werte Netzbezug."""
     frame = _samples_frame(samples, day, timezone, {"soc": soc_field, "feed_in": feed_in_field})
     if frame.empty:
         return {}
     grouped = frame.groupby(frame.index.floor("h"))
     soc = grouped["soc"].max()
     feed_in = frame["feed_in"].abs().groupby(frame.index.floor("h")).mean()
+    feed_in_signed = grouped["feed_in"].mean()
+    feed_in_max = frame["feed_in"].clip(lower=0).groupby(frame.index.floor("h")).max()
+    feed_in_share = None
+    if feed_in_limit_w is not None:
+        threshold = feed_in_limit_w * feed_in_tolerance
+        at_limit = frame["feed_in"].ge(threshold).where(frame["feed_in"].notna())
+        feed_in_share = at_limit.groupby(frame.index.floor("h")).mean()
     result: dict[str, dict[str, float]] = {}
     for timestamp in soc.index:
         values = {}
@@ -356,6 +451,12 @@ def aggregate_hourly_signals(
             values["soc_pct"] = round(float(soc[timestamp]), 1)
         if pd.notna(feed_in[timestamp]):
             values["feed_in_w"] = round(float(feed_in[timestamp]), 0)
+        if pd.notna(feed_in_signed[timestamp]):
+            values["feed_in_signed_w"] = round(float(feed_in_signed[timestamp]), 0)
+        if pd.notna(feed_in_max[timestamp]):
+            values["feed_in_max_w"] = round(float(feed_in_max[timestamp]), 0)
+        if feed_in_share is not None and pd.notna(feed_in_share[timestamp]):
+            values["feed_in_share_at_limit"] = round(float(feed_in_share[timestamp]), 4)
         if values:
             result[timestamp.strftime("%H:00")] = values
     return result
@@ -392,6 +493,7 @@ class ActualResult:
     energy: dict[date, float] = field(default_factory=dict)
     hourly: dict[date, dict[str, float]] = field(default_factory=dict)
     signals: dict[date, dict[str, dict[str, float]]] = field(default_factory=dict)
+    quality: dict[date, dict] = field(default_factory=dict)
     errors: dict[date, str] = field(default_factory=dict)
 
 
@@ -429,6 +531,7 @@ async def fetch_actuals(
     client_factory: Callable[[str, str], Any] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
+    raw_data_callback: Callable[[str, date | None, Any], None] | None = None,
 ) -> ActualResult:
     """Ruft Tageserträge (und optional Stundenprofile) für ``days`` ab.
 
@@ -443,6 +546,8 @@ async def fetch_actuals(
         log.info("AlphaESS: melde mich an und rufe die Anlagenliste ab ...")
         try:
             systems = await client.getESSList()
+            if raw_data_callback:
+                raw_data_callback("systems", None, systems)
         except Exception as error:
             raise SourceError(f"AlphaESS-Anlagenliste nicht abrufbar: {error}") from error
         log.info("AlphaESS: Anlagenliste erhalten (%d Anlage(n)).", len(systems or []))
@@ -465,6 +570,8 @@ async def fetch_actuals(
             try:
                 reply = await client.getOneDateEnergyBySn(serial, day.isoformat())
                 limiter.mark()
+                if raw_data_callback:
+                    raw_data_callback("daily_energy", day, reply)
                 if not reply or reply.get("epv") is None:
                     raise SourceError(f"AlphaESS lieferte für {day.isoformat()} kein Feld epv.")
                 result.energy[day] = float(reply["epv"])
@@ -479,11 +586,26 @@ async def fetch_actuals(
                 log.info("AlphaESS: rufe 5-Minuten-Leistungswerte für %s ab ...", day.isoformat())
                 try:
                     samples = await client.getOneDayPowerBySn(serial, day.isoformat()) or []
-                    result.hourly[day] = aggregate_hourly_pv_power(
-                        samples, day, result.energy[day], config.timezone
+                    if raw_data_callback:
+                        raw_data_callback("power_samples", day, samples)
+                    result.hourly[day], result.quality[day] = aggregate_hourly_pv_power_with_quality(
+                        samples,
+                        day,
+                        result.energy[day],
+                        config.timezone,
+                        latitude=config.latitude,
+                        longitude=config.longitude,
+                        min_coverage=config.quality_min_coverage,
+                        max_epv_deviation=config.quality_epv_mismatch_fraction,
                     )
                     result.signals[day] = aggregate_hourly_signals(
-                        samples, day, config.timezone, config.alphaess_soc_field, config.alphaess_feed_in_field
+                        samples,
+                        day,
+                        config.timezone,
+                        config.alphaess_soc_field,
+                        config.alphaess_feed_in_field,
+                        config.curtailment.feed_in_limit_w,
+                        config.curtailment.feed_in_tolerance,
                     )
                     log.info("AlphaESS: %d Leistungsproben erhalten.", len(samples))
                     missing = [

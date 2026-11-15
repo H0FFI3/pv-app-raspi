@@ -7,6 +7,9 @@ Wetterdaten über Open-Meteo und verwendet pvlib für die PV-Modellierung.
 Die Anwendung kann als Server mit Dashboard und Einrichtungsseite oder direkt
 zur Erzeugung eines Berichts gestartet werden. Der Server aktualisiert täglich
 um 05:30 Uhr den jüngsten abgeschlossenen Tag in der Anlagen-Zeitzone.
+Das Modell verwendet die von Open-Meteo gelieferten Stundenintervall-Mittelwerte
+und berechnet Wechselrichter-Clipping an diesen Intervallwerten; Randstunden
+werden mit dem jeweiligen Intervallmittelpunkt für die Solarposition bewertet.
 
 ## Voraussetzungen
 
@@ -65,12 +68,33 @@ Die wesentlichen Einstellungen sind:
 - AlphaESS-Zugangsdaten: `ALPHAESS_APP_ID` und `ALPHAESS_APP_SECRET`
 - Standort: `LATITUDE`, `LONGITUDE` und `TIMEZONE`
 - Module, Ausrichtung, Wechselrichter und Systemverluste
+- Optionale Dachneigungen je Modulfeld: `TILT_EAST_DEG` und `TILT_WEST_DEG`
 - Erster zu erfassender Tag: `DATA_START_DATE`
 
 Weitere optionale Einstellungen, ihre Standardwerte und Hinweise stehen in
 `.env.example`. Der Server bietet zusätzlich eine Einrichtungsseite. Werte,
 die dort gespeichert werden, liegen in `settings.env` im Datenordner der App;
 vorhandene `.env`-Werte haben Vorrang.
+
+Forecast-Tage werden standardmäßig nach 10 Tagen durch vollständige
+Archivdaten ersetzt. `WEATHER_UPGRADE_AFTER_DAYS=0` schaltet diese Prüfung aus;
+Ist-Ertrag und Stundenmessungen werden bei einer Umstellung beibehalten.
+Der optionale öffentliche Lese-Endpunkt `/api/health` verwendet standardmäßig
+eine Veraltet-Schwelle von 36 Stunden (`HEALTH_STALE_AFTER_HOURS`).
+Qualitätskennzahlen verwenden standardmäßig 80 % Mindestabdeckung und 10 %
+Toleranz zwischen unskaliertem Stundenintegral und AlphaESS-Tageswert
+(`QUALITY_MIN_COVERAGE`, `QUALITY_EPV_MISMATCH_FRACTION`).
+Automatische Wiederholungsversuche erfolgen standardmäßig nach 15 und 60
+Minuten; `UPDATE_RETRY_FIRST_MINUTES` und `UPDATE_RETRY_SECOND_MINUTES` passen
+diese Abstände an.
+
+Rohdaten und Tageswerte werden im Datenordner zusätzlich in `pv.sqlite`
+gespeichert; `daily.json` bleibt als kompatibler Export und Backup erhalten.
+Das Dashboard zeigt Modellwechsel, Datenlücken und Qualitätsmarkierungen.
+Abdeckung der AlphaESS-Proben wird innerhalb des geschätzten Tageslichtfensters
+gemessen. Der öffentliche Lese-Endpunkt `/api/health` enthält nur einen
+minimalen Aktualisierungsstatus; schreibende Endpunkte bleiben lokal und
+token-geschützt.
 
 ## Anwendung starten
 
@@ -150,8 +174,14 @@ Der Zeitplan startet einmal täglich um `UPDATE_TIME` (Standard `05:30`). Dabei
 wird der jüngste abgeschlossene Tag erneut von AlphaESS abgerufen; der laufende
 Tag wird nicht als unvollständiger Datensatz im Dashboard angezeigt. Der Pi
 muss um die geplante Uhrzeit eingeschaltet und mit dem Netzwerk verbunden sein.
-Wird der Server erst später an diesem Tag gestartet, holt er den Lauf nach; nach
-einem fehlgeschlagenen Versuch gibt es an diesem Tag keinen zweiten Versuch.
+Wird der Server erst später an diesem Tag gestartet, holt er den Lauf nach.
+Bei jedem automatischen oder manuellen Datenlauf wird außerdem die PVGIS-TMY-
+Referenz für das Soll-Ist-Balkendiagramm aktualisiert. Ist PVGIS vorübergehend
+nicht erreichbar, läuft die Tagesaktualisierung mit den vorhandenen Daten weiter;
+die Referenz wird beim nächsten Lauf erneut abgerufen.
+Bei Fehlern versucht der Zeitplan bis zu drei Läufe pro Tag (mit 15 bzw. 60
+Minuten Abstand); nach dem dritten Fehlversuch gibt es an diesem Tag keine
+weiteren automatischen Versuche.
 Die Zeitzone für den Zeitplan ist der Wert von `TIMEZONE`.
 
 ### Bericht direkt erzeugen
@@ -169,6 +199,24 @@ Browserstarts, zeigt:
 ```bash
 python pv_app.py --help
 ```
+
+Gespeicherte Potenziale lassen sich nach einer Modellparameteränderung aus
+lokal gespeicherten Wetterstunden neu berechnen, ohne AlphaESS aufzurufen:
+
+```bash
+python pv_app.py --recompute
+python pv_app.py --recompute --from 2026-01-01 --to 2026-01-31
+```
+
+`python tools/calibrate.py` wertet geeignete, nicht abgeregelte Stunden aus und
+schlägt einen Wert für `SYSTEM_LOSS_FRACTION` vor. Das Werkzeug ändert keine
+Dateien oder Einstellungen.
+
+Mit `python tools/compare_radiation_sources.py --from JJJJ-MM-TT --to JJJJ-MM-TT`
+lassen sich Archiv, Forecast und Satellitenstrahlung gegen gespeicherte Iststunden
+vergleichen. Die Satellite Radiation API ist regional und je Satellit unterschiedlich
+verfügbar; siehe <https://open-meteo.com/en/docs/satellite-radiation-api>. Der
+Vergleich ändert die produktive Wetterquelle nicht.
 
 ## Tests
 
@@ -188,7 +236,8 @@ Die Tests unter `tests/frontend` verwenden Node.js, npm und jsdom.
 ```bash
 cd tests/frontend
 npm install
-npm test
+cd ../..
+python -m pytest -q tests/test_frontend.py
 ```
 
 Wenn Node.js und jsdom installiert sind, führt `python -m pytest -q` außerdem
@@ -212,6 +261,7 @@ wird dieser Test übersprungen.
 │   ├── model.py               PV-Leistungsmodell
 │   ├── report.py              HTML-Bericht
 │   ├── storage.py             Lokale Datenspeicherung
+│   ├── db.py                  SQLite-Datenbank für Tageswerte und Rohdaten
 │   ├── updater.py             Aktualisierung und täglicher Zeitplan
 │   └── ...                    Anzeige, Einstellungen, Logging und Hilfslogik
 ├── site/                      Weboberfläche und statische Dateien
@@ -229,3 +279,11 @@ wird dieser Test übersprungen.
 
 Die vom Server verwendeten Daten, Logs und Statusdateien werden im
 Anwendungsdatenordner des Benutzers abgelegt, nicht im Quellcodeverzeichnis.
+Die Tageshistorie bleibt weiterhin als `daily.json` mit atomarem Schreiben und
+Sicherungen erhalten. Zusätzlich speichert `pv.sqlite` Wetterstunden,
+AlphaESS-Tagesantworten, 5-Minuten-Leistungsproben und Tagesdatensätze dauerhaft;
+eine vorhandene `daily.json` wird beim ersten Start einmalig und ohne Verlust
+unbekannter Felder importiert. Rohdaten werden nicht automatisch gelöscht.
+Der Speicherbedarf hängt von Anlagenantworten und Abrufhäufigkeit ab; als grobe
+Orientierung sind pro Anlage meist einige zehn Kilobyte je erfassten Tag und
+damit einige zehn Megabyte pro Jahr einzuplanen.

@@ -225,6 +225,21 @@ def test_energy_and_hourly_profile_are_collected(config):
     assert client.closed
 
 
+def test_actual_raw_replies_are_sent_to_the_callback(config):
+    day = date(2026, 10, 13)
+    samples = samples_for_day(day, 8, 12, 1000)
+    client = FakeAlphaess(energy={day.isoformat(): {"epv": 4.8, "extra": "kept"}}, power={day.isoformat(): samples})
+    saved = []
+
+    fetch(
+        config, [day], client, include_hourly=True,
+        raw_data_callback=lambda *item: saved.append(item),
+    )
+
+    assert ("daily_energy", day, {"epv": 4.8, "extra": "kept"}) in saved
+    assert ("power_samples", day, samples) in saved
+
+
 def test_one_failing_day_does_not_abort_the_others(config):
     client = FakeAlphaess(energy={"2026-10-13": {"epv": None}, "2026-10-14": {"epv": 6.1}})
     result = fetch(config, [date(2026, 10, 14), date(2026, 10, 13)], client)
@@ -284,7 +299,9 @@ def test_signals_are_collected_per_hour(config):
     samples = [{**s, "cbat": 100, "feedIn": 4000} for s in samples_for_day(day, 10, 12, 3000)]
     client = FakeAlphaess(energy={"2026-10-13": {"epv": 6.0}}, power={"2026-10-13": samples})
     result = fetch(config, [day], client, include_hourly=True)
-    assert result.signals[day]["10:00"] == {"soc_pct": 100.0, "feed_in_w": 4000.0}
+    assert result.signals[day]["10:00"] == {
+        "soc_pct": 100.0, "feed_in_w": 4000.0, "feed_in_signed_w": 4000.0, "feed_in_max_w": 4000.0
+    }
 
 
 def test_missing_fields_are_reported_once(config, caplog):
@@ -302,4 +319,6 @@ def test_custom_field_names_from_the_configuration_are_used(make_config):
     day = date(2026, 10, 13)
     samples = [{**s, "soc": 77, "grid": 1500} for s in samples_for_day(day, 10, 12, 500)]
     result = fetch(config, [day], FakeAlphaess(energy={"2026-10-13": {"epv": 1.0}}, power={"2026-10-13": samples}), include_hourly=True)
-    assert result.signals[day]["10:00"] == {"soc_pct": 77.0, "feed_in_w": 1500.0}
+    assert result.signals[day]["10:00"] == {
+        "soc_pct": 77.0, "feed_in_w": 1500.0, "feed_in_signed_w": 1500.0, "feed_in_max_w": 1500.0
+    }

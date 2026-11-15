@@ -2,11 +2,12 @@ import asyncio
 import json
 from datetime import date, timedelta
 
+import pandas as pd
 import pytest
 
 from conftest import BASE_ENV
 from helpers import clear_sky_weather
-from pvapp import app, paths, sources, storage
+from pvapp import app, db, paths, sources, storage
 from pvapp.sources import ActualResult, WeatherData
 
 D = date
@@ -58,6 +59,36 @@ def test_signal_candidates_are_planned_separately_and_limited_to_the_window():
     assert plan(stored=stored, refresh=True, signal_candidates={D(2026, 10, 15)}).signal_days == []
 
 
+def test_forecast_upgrades_are_planned_after_the_configured_age():
+    stored = {D(2026, 10, day) for day in range(13, 25)}
+
+    result = app.plan_days(
+        stored,
+        D(2026, 10, 25),
+        D(2026, 10, 13),
+        14,
+        upgrade_candidates={D(2026, 10, 14), D(2026, 10, 15), D(2026, 10, 16)},
+        upgrade_after_days=10,
+    )
+
+    assert result.upgrade_days == [D(2026, 10, 14), D(2026, 10, 15)]
+    assert not result.up_to_date
+
+
+def test_zero_forecast_upgrade_delay_disables_upgrades():
+    result = app.plan_days(
+        {D(2026, 10, day) for day in range(13, 25)},
+        D(2026, 10, 25),
+        D(2026, 10, 13),
+        14,
+        upgrade_candidates={D(2026, 10, 14)},
+        upgrade_after_days=0,
+    )
+
+    assert result.upgrade_days == []
+    assert result.up_to_date
+
+
 def test_refresh_days_refetches_the_last_n_stored_days():
     stored = [D(2026, 10, 13), D(2026, 10, 14), D(2026, 10, 15)]
     assert plan(stored=stored, refresh_days=2).days == [D(2026, 10, 14), D(2026, 10, 15)]
@@ -99,6 +130,38 @@ def test_records_contain_daily_hourly_and_source_information(config):
     assert len(first["hourly"]) == 24 and hours["12:00"]["actual_kwh"] == 3.0 and hours["03:00"]["actual_kwh"] is None
     assert first["potential_kwh"] == pytest.approx(sum(p["potential_kwh"] for p in first["hourly"]), abs=0.05)
     assert first["potential_kwh"] > 10
+    assert len(first["config_hash"]) == 64 and first["model_version"] and first["computed_at"]
+    assert first["poa_kwh_m2"] > 0
+
+
+def test_quality_metadata_is_attached_to_the_day_record(config):
+    day = D(2026, 10, 13)
+
+    async def actuals(cfg, requested, include_hourly, chooser):
+        return ActualResult(
+            8.0,
+            energy={day: 5.0},
+            quality={
+                day: {
+                    "n_samples": 100,
+                    "coverage": 0.9,
+                    "integral_kwh": 4.8,
+                    "integral_ratio": 0.96,
+                    "flags": [],
+                }
+            },
+        )
+
+    result = run(
+        app.collect_records(
+            config,
+            [day],
+            load_weather_fn=lambda *args: make_weather(config, [day]),
+            fetch_actuals_fn=actuals,
+        )
+    )
+
+    assert result.records[0]["quality"]["coverage"] == 0.9
 
 
 def test_signals_are_merged_into_the_hourly_profile(config):
@@ -170,6 +233,85 @@ def test_no_weather_at_all_makes_no_alphaess_call(config):
     assert result.records == [] and D(2026, 10, 13) in result.skipped
 
 
+def test_recompute_uses_saved_weather_and_preserves_measured_values(config, tmp_path):
+    day = D(2026, 10, 13)
+    weather = make_weather(config, [day])
+    frame = weather.frame[weather.frame.index.date == day]
+    hourly = {
+        "time": [
+            int((timestamp + pd.Timedelta(minutes=30)).tz_convert("UTC").timestamp())
+            for timestamp in frame.index
+        ],
+        "temperature_2m": frame["temp_air"].tolist(),
+        "wind_speed_10m": frame["wind_speed"].tolist(),
+        "shortwave_radiation": frame["ghi"].tolist(),
+        "direct_normal_irradiance": frame["dni"].tolist(),
+        "diffuse_radiation": frame["dhi"].tolist(),
+        "sunshine_duration": [900] * len(frame),
+    }
+    repository = db.Repository(tmp_path / "pv.sqlite")
+    repository.initialize()
+    repository.persist_callback(
+        "weather_hourly",
+        None,
+        {"source": "archive", "payload": {"elevation": weather.elevation, "hourly": hourly}},
+    )
+    saved = {
+        "date": day.isoformat(),
+        "actual_kwh": 7.25,
+        "potential_kwh": 1.0,
+        "sunshine_hours": 4.0,
+        "weather_source": "archive",
+        "hourly": [{"hour": "12:00", "actual_kwh": 0.75, "potential_kwh": 0.1, "soc_pct": 90}],
+    }
+    payload = {"records": [saved]}
+
+    assert app.recompute_history(payload, config, repository)
+    updated = payload["records"][0]
+
+    assert updated["actual_kwh"] == 7.25
+    assert updated["hourly"][0]["actual_kwh"] == 0.75
+    assert updated["hourly"][0]["soc_pct"] == 90
+    assert updated["potential_kwh"] > 1
+    assert updated["config_hash"] and updated["poa_kwh_m2"] > 0
+
+
+def test_archive_upgrade_preserves_actuals_and_skips_alphaess(config, monkeypatch):
+    day = D(2026, 10, 13)
+    original = {
+        "date": day.isoformat(),
+        "actual_kwh": 10.0,
+        "potential_kwh": 8.0,
+        "sunshine_hours": 3.0,
+        "weather_source": "forecast",
+        "hourly": [{"hour": "12:00", "actual_kwh": 2.5, "potential_kwh": 1.0, "soc_pct": 99.0}],
+    }
+
+    async def no_actuals(*args, **kwargs):
+        pytest.fail("Für eine Wetterumstellung darf AlphaESS nicht aufgerufen werden")
+
+    monkeypatch.setattr(
+        app.model,
+        "estimate_hourly_potential",
+        lambda frame, *args: pd.Series(2.0, index=frame.index),
+    )
+    result = run(app.collect_records(
+        config,
+        [],
+        upgrade_days=[day],
+        stored_records={day: original},
+        load_weather_fn=lambda *args: make_weather(config, [day], "archive"),
+        fetch_actuals_fn=no_actuals,
+    ))
+
+    upgraded = result.records[0]
+    assert upgraded["weather_source"] == "archive"
+    assert upgraded["actual_kwh"] == original["actual_kwh"]
+    assert upgraded["hourly"][0]["actual_kwh"] == original["hourly"][0]["actual_kwh"]
+    assert upgraded["hourly"][0]["soc_pct"] == original["hourly"][0]["soc_pct"]
+    assert upgraded["hourly"][0]["potential_kwh"] != original["hourly"][0]["potential_kwh"]
+
+
 def test_alphaess_errors_skip_only_that_day(config):
     days = [D(2026, 10, 13), D(2026, 10, 14)]
 
@@ -212,6 +354,13 @@ def sandbox(tmp_path, monkeypatch):
 
     monkeypatch.setattr(app, "collect_records", fake_collect)
     Box.calls = []
+    Box.reference_calls = []
+
+    def fake_refresh_reference(config, cache_path):
+        Box.reference_calls.append((config, cache_path))
+        return {"annual_kwh": 1234}
+
+    monkeypatch.setattr(app, "refresh_tmy_reference", fake_refresh_reference)
 
     Box.signal_calls = []
     Box.signal_reply = {}  # Tag -> Signale; fehlender Tag = Abruf fehlgeschlagen
@@ -235,10 +384,22 @@ def saved_dates(box):
 def test_first_start_backfills_and_writes_history_and_report(sandbox):
     assert start("--no-open") == 0
     assert sandbox.calls == [[D(2026, 10, 13), D(2026, 10, 14), D(2026, 10, 15)]]
+    assert len(sandbox.reference_calls) == 1
+    assert sandbox.reference_calls[0][1] == paths.tmy_cache_path()
     assert saved_dates(sandbox) == ["2026-10-13", "2026-10-14", "2026-10-15"]
     html = sandbox.report.read_text(encoding="utf-8")
     assert "PV_DAILY_DATA" in html and "2026-10-15" in html
     assert sandbox.browser == []  # --no-open
+
+
+def test_reference_refresh_failure_does_not_block_daily_report(sandbox, monkeypatch):
+    def failed_refresh(config, cache_path):
+        raise OSError("PVGIS nicht erreichbar")
+
+    monkeypatch.setattr(app, "refresh_tmy_reference", failed_refresh)
+
+    assert start("--no-open") == 0
+    assert sandbox.report.exists()
 
 
 def test_second_start_makes_no_api_calls_and_does_not_touch_the_history_file(sandbox):
@@ -336,11 +497,11 @@ def test_report_marks_curtailed_hours(sandbox, monkeypatch):
     sandbox.data_file.write_text(json.dumps({"records": [day]}), encoding="utf-8")
     start("--offline", "--no-open")
     html = sandbox.report.read_text(encoding="utf-8")
-    assert '"curtailed":"battery"' in html and '"curtailment":{"hours":1,"lost_kwh":2.0}' in html
+    assert '"curtailed":"battery"' in html and '"curtailment":{"hours":1,"lost_kwh":2.0,"lost_kwh_upper":2.0}' in html
     assert sandbox.data_file.read_text(encoding="utf-8") == json.dumps({"records": [day]}), "Markierung wird nicht gespeichert"
 
 
-def test_curtailment_thresholds_apply_offline_without_a_complete_configuration(sandbox, monkeypatch):
+def test_offline_curtailment_does_not_infer_feed_in_direction(sandbox, monkeypatch):
     monkeypatch.delenv("LATITUDE")
     monkeypatch.setenv("FEED_IN_LIMIT_W", "4000")
     sandbox.data_file.parent.mkdir(parents=True)
@@ -348,7 +509,7 @@ def test_curtailment_thresholds_apply_offline_without_a_complete_configuration(s
     day = {"date": "2026-10-14", "actual_kwh": 5, "potential_kwh": 8, "sunshine_hours": 4, "hourly": hours}
     sandbox.data_file.write_text(json.dumps({"records": [day]}), encoding="utf-8")
     assert start("--offline", "--no-open") == 0
-    assert '"curtailed":"limit"' in sandbox.report.read_text(encoding="utf-8")
+    assert '"curtailed":"limit"' not in sandbox.report.read_text(encoding="utf-8")
 
 
 def test_curtailment_chain_from_alphaess_samples_to_marked_hours(config):
@@ -383,13 +544,14 @@ def test_curtailment_chain_from_alphaess_samples_to_marked_hours(config):
     collected = run(app.collect_records(config, [day], load_weather_fn=lambda *a: weather, fetch_actuals_fn=real_fetch))
     record = collected.records[0]
     assert any("soc_pct" in p for p in record["hourly"])
+    assert any(p.get("feed_in_max_w") == 4000 for p in record["hourly"])
 
     for settings in (curtailment.CurtailmentSettings(feed_in_limit_w=4000), curtailment.CurtailmentSettings()):
         marked = curtailment.annotate_records(storage.valid_records([record]), settings)[0]
         flagged = [p["hour"] for p in marked["hourly"] if p.get("curtailed")]
         assert flagged == ["11:00", "12:00", "13:00", "14:00"], flagged
         assert marked["curtailment"]["hours"] == 4 and marked["curtailment"]["lost_kwh"] > 3
-    # mit Limit lautet der Grund "limit", ohne Limit "battery"
+    # Positive feedIn-Proben sind Einspeisung; ohne gesetztes Limit bleibt nur der Akku-Hinweis.
     with_limit = curtailment.annotate_records([record], curtailment.CurtailmentSettings(feed_in_limit_w=4000))[0]
     assert {p["curtailed"] for p in with_limit["hourly"] if p.get("curtailed")} == {"limit"}
     without_limit = curtailment.annotate_records([record], curtailment.CurtailmentSettings())[0]

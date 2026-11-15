@@ -64,6 +64,42 @@ def test_plausible_clear_sky_yields(config):
     assert summer > autumn * 1.8
 
 
+def test_array_specific_tilt_changes_the_model_and_defaults_to_surface_tilt(make_config):
+    base = make_config()
+    tilted = make_config(TILT_EAST_DEG=10, TILT_WEST_DEG=50)
+    weather = sky(base, date(2026, 6, 15))
+
+    baseline = model.estimate_hourly_potential(weather, 300, 8.0, base)
+    unchanged = model.estimate_hourly_potential(weather, 300, 8.0, make_config(TILT_EAST_DEG="", TILT_WEST_DEG=""))
+    changed = model.estimate_hourly_potential(weather, 300, 8.0, tilted)
+
+    pd.testing.assert_series_equal(baseline, unchanged)
+    assert not changed.equals(baseline)
+
+
+def test_poa_is_module_weighted_hourly_irradiation(config):
+    hourly = model.estimate_hourly_poa(sky(config, date(2026, 6, 15)), 300, config)
+
+    assert len(hourly) == 24
+    assert hourly.sum() > 0
+    assert str(hourly.index.tz) == config.timezone
+
+
+def test_solar_position_uses_open_meteo_interval_midpoint_near_sunrise(config):
+    """Der Intervallwert 07:00–08:00 wird an seinem Mittelpunkt 07:30 bewertet, nicht um 07:00."""
+    weather = sky(config, date(2026, 3, 20))
+    midpoint = pd.Timestamp("2026-03-20 07:30", tz=config.timezone)
+    interval = weather.loc[[midpoint]]
+    shifted_to_start = interval.copy()
+    shifted_to_start.index = shifted_to_start.index - pd.Timedelta(minutes=30)
+
+    midpoint_power = model.estimate_hourly_potential(interval, 300, 8.0, config).sum()
+    start_power = model.estimate_hourly_potential(shifted_to_start, 300, 8.0, config).sum()
+
+    assert midpoint_power > 0
+    assert midpoint_power != pytest.approx(start_power, rel=0.01)
+
+
 def test_east_west_roof_is_symmetric_around_solar_noon(make_config):
     config = make_config(LONGITUDE=0, TIMEZONE="UTC")  # Sonnenmittag ~12:00 UTC; Zeitgleichung um 15.04. ~0
     hourly = model.estimate_hourly_potential(sky(config, date(2026, 4, 15)), 0, 20.0, config)

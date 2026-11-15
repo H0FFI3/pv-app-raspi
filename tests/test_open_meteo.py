@@ -1,17 +1,24 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-import compare_daily
+from conftest import BASE_ENV
+from pvapp import sources
 
 
-def make_payload(local_day, timezone):
+TIMEZONE = BASE_ENV["TIMEZONE"]
+
+
+def make_payload(local_day):
+    timezone = ZoneInfo(TIMEZONE)
     local_times = pd.date_range(
-        local_day.isoformat(), periods=24, freq="h", tz=timezone
+        pd.Timestamp(local_day.isoformat(), tz=timezone) + pd.Timedelta(hours=1),
+        periods=24,
+        freq="h",
     )
-    unix_times = [int(timestamp.timestamp()) for timestamp in local_times]
+    unix_times = [int(timestamp.tz_convert("UTC").timestamp()) for timestamp in local_times]
     return {
         "elevation": 12,
         "hourly": {
@@ -21,54 +28,57 @@ def make_payload(local_day, timezone):
             "shortwave_radiation": [100.0] * 24,
             "direct_normal_irradiance": [120.0] * 24,
             "diffuse_radiation": [20.0] * 24,
-        },
-        "daily": {
-            "time": [local_day.isoformat()],
-            "sunshine_duration": [7200.0],
+            "sunshine_duration": [300.0] * 24,
         },
     }
 
 
-def test_yesterday_uses_forecast_past_days_and_marks_source(monkeypatch):
-    timezone = compare_daily.TIMEZONE
-    yesterday = pd.Timestamp.now(tz=timezone).date() - timedelta(days=1)
-    payload = make_payload(yesterday, timezone)
+def response(payload, status=200):
+    return SimpleNamespace(status_code=status, json=lambda: payload)
+
+
+def test_yesterday_uses_forecast_and_marks_source(make_config):
+    yesterday = date(2026, 10, 15)
+    payload = make_payload(yesterday)
     requests = []
+    saved = []
 
     def fake_get(url, params, timeout):
         requests.append((url, params, timeout))
-        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: payload)
+        if url == sources.ARCHIVE_URL:
+            return response({"reason": "not yet available"}, 400)
+        return response(payload)
 
-    monkeypatch.setattr(compare_daily.requests, "get", fake_get)
+    result = sources.load_weather(
+        make_config(), yesterday, yesterday, http_get=fake_get, today=yesterday + timedelta(days=1),
+        sleep=lambda _: None, raw_data_callback=lambda *item: saved.append(item),
+    )
 
-    weather, elevation, sunshine, sources = compare_daily.load_weather(yesterday, yesterday)
-
-    assert len(requests) == 1
-    assert requests[0][0].endswith("/v1/forecast")
-    assert requests[0][1]["past_days"] == 2
-    assert requests[0][1]["timezone"] == timezone
-    assert elevation == 12
-    assert sunshine[yesterday] == 2.0
-    assert sources[yesterday] == "forecast"
-    expected_first = pd.Timestamp(yesterday.isoformat(), tz=timezone) - pd.Timedelta(minutes=30)
-    assert weather.index[0] == expected_first
+    assert [request[0] for request in requests] == [sources.ARCHIVE_URL, sources.FORECAST_URL]
+    assert requests[1][1]["past_days"] == 2
+    assert requests[1][1]["timezone"] == "UTC"
+    assert result.elevation == 12
+    assert result.sunshine_hours[yesterday] == 2.0
+    assert result.source_by_day[yesterday] == "forecast"
+    assert result.frame.index[0] == pd.Timestamp(f"{yesterday} 00:30", tz=TIMEZONE)
+    assert len(saved) == 1 and saved[0][0:2] == ("weather_hourly", None)
+    assert saved[0][2]["source"] == "forecast" and saved[0][2]["payload"] == payload
 
 
-def test_older_days_use_historical_weather_archive(monkeypatch):
-    timezone = compare_daily.TIMEZONE
-    old_day = pd.Timestamp.now(tz=timezone).date() - timedelta(days=30)
-    payload = make_payload(old_day, timezone)
+def test_older_days_use_historical_weather_archive(make_config):
+    old_day = date(2026, 9, 1)
+    payload = make_payload(old_day)
     requests = []
 
     def fake_get(url, params, timeout):
         requests.append((url, params))
-        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: payload)
+        return response(payload)
 
-    monkeypatch.setattr(compare_daily.requests, "get", fake_get)
-
-    _, _, _, sources = compare_daily.load_weather(old_day, old_day)
+    result = sources.load_weather(
+        make_config(), old_day, old_day, http_get=fake_get, today=date(2026, 10, 1), sleep=lambda _: None
+    )
 
     assert len(requests) == 1
-    assert requests[0][0].endswith("/v1/archive")
+    assert requests[0][0] == sources.ARCHIVE_URL
     assert requests[0][1]["start_date"] == (old_day - timedelta(days=1)).isoformat()
-    assert sources[old_day] == "archive"
+    assert result.source_by_day[old_day] == "archive"

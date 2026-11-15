@@ -19,13 +19,20 @@ def test_battery_full_with_clear_deficit_is_flagged():
     assert classify_hour(point(soc=97), S) == "battery"  # Grenzwert zählt als voll
 
 
-def test_feed_in_at_the_limit_is_flagged_and_wins_over_battery():
-    assert classify_hour(point(feed=3900), S) == "limit"  # >= 95 % von 4000 W
-    assert classify_hour(point(soc=100, feed=4000), S) == "limit"
+def test_legacy_feed_in_magnitude_is_not_treated_as_a_limit():
+    assert classify_hour(point(feed=3900), S) is None
+    assert classify_hour(point(feed=-4000), S) is None
 
 
-def test_negative_grid_power_uses_the_absolute_value():
-    assert classify_hour(point(feed=-4000), S) == "limit"
+def test_positive_feed_in_means_export_and_negative_means_grid_import():
+    assert classify_hour({**point(), "feed_in_signed_w": 3900}, S) == "limit"
+    assert classify_hour({**point(), "feed_in_signed_w": -5000, "feed_in_max_w": 0}, S) is None
+
+
+def test_peak_and_share_signals_take_precedence_over_the_legacy_mean():
+    assert classify_hour({**point(soc=100, feed=100), "feed_in_max_w": 4000}, S) == "limit"
+    assert classify_hour({**point(feed=100), "feed_in_share_at_limit": 1 / 12}, S) == "limit"
+    assert classify_hour({**point(feed=4000), "feed_in_share_at_limit": 0.0, "feed_in_max_w": 100}, S) is None
 
 
 @pytest.mark.parametrize(
@@ -74,9 +81,22 @@ def test_day_summary_counts_hours_and_estimates_the_loss():
         ],
     }
     result = annotate_records([day], S)[0]
-    assert result["curtailment"] == {"hours": 2, "lost_kwh": 4.5}
+    assert result["curtailment"] == {"hours": 2, "lost_kwh": 4.5, "lost_kwh_upper": 4.5}
     assert [p.get("curtailed") for p in result["hourly"]] == ["battery", "battery", None]
     assert "curtailed" not in day["hourly"][0], "Eingabedaten dürfen nicht verändert werden"
+
+
+def test_calibrated_loss_reduces_systematic_model_bias():
+    baseline = {"date": "2026-10-13", "hourly": [point(actual=2.0, potential=2.5, soc=50)]}
+    curtailed = {
+        "date": "2026-10-14",
+        "hourly": [point(actual=1.0, potential=4.0, soc=100)],
+    }
+
+    result = annotate_records([baseline, curtailed], S)[1]["curtailment"]
+
+    assert result["lost_kwh"] == pytest.approx(2.2)
+    assert result["lost_kwh_upper"] == 3.0
 
 
 def test_days_without_signals_are_not_evaluated():

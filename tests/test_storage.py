@@ -129,6 +129,40 @@ def test_hourly_battery_and_grid_signals_are_kept_and_invalid_ones_dropped():
     assert "soc_pct" not in hours[1]
 
 
+def test_new_provenance_quality_and_signals_survive_normalization():
+    raw = record(
+        "2026-10-13",
+        config_hash="a" * 64,
+        model_version="1",
+        computed_at="2026-10-13T05:30:00+00:00",
+        poa_kwh_m2=4.2,
+        quality={
+            "n_samples": 180,
+            "coverage": 0.9,
+            "integral_kwh": 4.1,
+            "integral_ratio": 0.98,
+            "flags": ["low_coverage"],
+        },
+        hourly=[{
+            "hour": "12:00",
+            "actual_kwh": 1.0,
+            "potential_kwh": 2.0,
+            "feed_in_max_w": 4000,
+            "feed_in_share_at_limit": 0.2,
+            "feed_in_signed_w": -1000,
+        }],
+    )
+
+    normalized = storage.normalize_record(raw)
+
+    assert normalized["config_hash"] == "a" * 64
+    assert normalized["model_version"] == "1" and normalized["poa_kwh_m2"] == 4.2
+    assert normalized["quality"]["flags"] == ["low_coverage"]
+    assert normalized["hourly"][0]["feed_in_max_w"] == 4000
+    assert normalized["hourly"][0]["feed_in_share_at_limit"] == 0.2
+    assert normalized["hourly"][0]["feed_in_signed_w"] == -1000
+
+
 # ---------------------------------------------------------- Signale nachladen (Altdatensätze)
 
 

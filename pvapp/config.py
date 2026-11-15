@@ -6,6 +6,8 @@ und liefert ein unveränderliches ``Config``-Objekt. Fehler nennen die Variablen
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import re
@@ -64,12 +66,14 @@ REQUIRED_SETTINGS = (
 )
 
 WEATHER_SOURCES = ("auto", "archive", "forecast")
+MODEL_VERSION = "1"
 
 
 @dataclass(frozen=True)
 class ArrayConfig:
     modules: int
     azimuth: float
+    tilt: float | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +94,12 @@ class Config:
     data_start_date: date
     api_request_interval_seconds: int = 10
     backfill_max_days: int = 14
+    weather_upgrade_after_days: int = 10
+    health_stale_after_hours: int = 36
+    update_retry_first_minutes: int = 15
+    update_retry_second_minutes: int = 60
+    quality_min_coverage: float = 0.8
+    quality_epv_mismatch_fraction: float = 0.1
     update_time: time = time(5, 30)  # tägliche Aktualisierung im Serve-Modus
     weather_source: str = "auto"
     # Modelloptionen (Standard = unverändertes Verhalten der Vorversion)
@@ -115,6 +125,38 @@ class Config:
     @property
     def secrets(self) -> tuple[str, ...]:
         return tuple(s for s in (self.alphaess_app_id, self.alphaess_app_secret, self.alphaess_system_sn) if s)
+
+
+def model_fingerprint(config: Config) -> str:
+    """Stabiler SHA-256-Fingerabdruck aller Einstellungen, die das PV-Modell beeinflussen."""
+    model_config = {
+        "version": MODEL_VERSION,
+        "latitude": config.latitude,
+        "longitude": config.longitude,
+        "surface_tilt": config.surface_tilt,
+        "arrays": {
+            name: {
+                "modules": array.modules,
+                "azimuth": array.azimuth,
+                "tilt": config.surface_tilt if array.tilt is None else array.tilt,
+            }
+            for name, array in sorted(config.arrays.items())
+        },
+        "module_power_wp": config.module_power_wp,
+        "module_efficiency": config.module_efficiency,
+        "module_nmot_c": config.module_nmot_c,
+        "module_bifacial": config.module_bifacial,
+        "system_loss_fraction": config.system_loss_fraction,
+        "power_temperature_coefficient": config.power_temperature_coefficient,
+        "nominal_inverter_efficiency": config.nominal_inverter_efficiency,
+        "iam_enabled": config.iam_enabled,
+        "iam_b": config.iam_b,
+        "albedo": config.albedo,
+        "horizon_enabled": config.horizon_enabled,
+        "bifaciality_gain": config.bifaciality_gain,
+    }
+    encoded = json.dumps(model_config, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 # --------------------------------------------------------------------------- .env
@@ -266,8 +308,10 @@ def config_from_env(env: Mapping[str, str]) -> Config:
 
     modules_east = r.int("MODULES_EAST", required=True, minimum=0)
     azimuth_east = r.float("AZIMUTH_EAST_DEG", required=True, minimum=0, maximum=360)
+    tilt_east = r.float("TILT_EAST_DEG", default=surface_tilt, minimum=0, maximum=90)
     modules_west = r.int("MODULES_WEST", required=True, minimum=0)
     azimuth_west = r.float("AZIMUTH_WEST_DEG", required=True, minimum=0, maximum=360)
+    tilt_west = r.float("TILT_WEST_DEG", default=surface_tilt, minimum=0, maximum=90)
     if not r.missing and modules_east + modules_west <= 0:
         r.invalid.append("MODULES_EAST + MODULES_WEST muss größer als 0 sein")
 
@@ -283,6 +327,12 @@ def config_from_env(env: Mapping[str, str]) -> Config:
 
     interval = r.int("API_REQUEST_INTERVAL_SECONDS", default=10, minimum=0)
     backfill = r.int("BACKFILL_MAX_DAYS", default=14, minimum=1, maximum=92)
+    weather_upgrade_after_days = r.int("WEATHER_UPGRADE_AFTER_DAYS", default=10, minimum=0, maximum=3650)
+    health_stale_after_hours = r.int("HEALTH_STALE_AFTER_HOURS", default=36, minimum=1, maximum=8760)
+    update_retry_first_minutes = r.int("UPDATE_RETRY_FIRST_MINUTES", default=15, minimum=0, maximum=1440)
+    update_retry_second_minutes = r.int("UPDATE_RETRY_SECOND_MINUTES", default=60, minimum=0, maximum=1440)
+    quality_min_coverage = r.float("QUALITY_MIN_COVERAGE", default=0.8, minimum=0, maximum=1)
+    quality_epv_mismatch_fraction = r.float("QUALITY_EPV_MISMATCH_FRACTION", default=0.1, minimum=0, maximum=1)
     weather_source = r.text("WEATHER_SOURCE", "auto").lower()
     if weather_source not in WEATHER_SOURCES:
         r.invalid.append(f"WEATHER_SOURCE='{weather_source}' (erlaubt: {', '.join(WEATHER_SOURCES)})")
@@ -328,13 +378,19 @@ def config_from_env(env: Mapping[str, str]) -> Config:
         system_loss_fraction=loss,
         power_temperature_coefficient=gamma,
         arrays={
-            "east": ArrayConfig(modules_east, azimuth_east),
-            "west": ArrayConfig(modules_west, azimuth_west),
+            "east": ArrayConfig(modules_east, azimuth_east, tilt_east),
+            "west": ArrayConfig(modules_west, azimuth_west, tilt_west),
         },
         nominal_inverter_efficiency=inverter_eff,
         data_start_date=data_start,
         api_request_interval_seconds=interval,
         backfill_max_days=backfill,
+        weather_upgrade_after_days=weather_upgrade_after_days,
+        health_stale_after_hours=health_stale_after_hours,
+        update_retry_first_minutes=update_retry_first_minutes,
+        update_retry_second_minutes=update_retry_second_minutes,
+        quality_min_coverage=quality_min_coverage,
+        quality_epv_mismatch_fraction=quality_epv_mismatch_fraction,
         update_time=update_time,
         weather_source=weather_source,
         iam_enabled=iam_enabled,

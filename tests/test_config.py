@@ -1,6 +1,6 @@
 import pytest
 
-from pvapp.config import ConfigError, config_from_env, load_environment
+from pvapp.config import ConfigError, config_from_env, load_environment, model_fingerprint
 
 
 def test_valid_configuration(config):
@@ -12,6 +12,10 @@ def test_valid_configuration(config):
     # Optionen haben Standardwerte = bisheriges Verhalten
     assert (config.iam_enabled, config.albedo, config.horizon_enabled, config.bifaciality_gain) == (False, 0.25, False, 0.0)
     assert config.backfill_max_days == 14 and config.weather_source == "auto"
+    assert config.weather_upgrade_after_days == 10
+    assert config.health_stale_after_hours == 36
+    assert (config.update_retry_first_minutes, config.update_retry_second_minutes) == (15, 60)
+    assert (config.quality_min_coverage, config.quality_epv_mismatch_fraction) == (0.8, 0.1)
 
 
 def test_missing_values_are_all_listed(base_env):
@@ -38,6 +42,11 @@ def test_invalid_number_names_the_variable_instead_of_crashing_with_valueerror(b
         ("TIMEZONE", "Mars/Olympus"),
         ("DATA_START_DATE", "13.10.2026"),
         ("BACKFILL_MAX_DAYS", "0"),
+        ("WEATHER_UPGRADE_AFTER_DAYS", "-1"),
+        ("HEALTH_STALE_AFTER_HOURS", "0"),
+        ("UPDATE_RETRY_FIRST_MINUTES", "-1"),
+        ("UPDATE_RETRY_SECOND_MINUTES", "1441"),
+        ("QUALITY_MIN_COVERAGE", "1.1"),
         ("WEATHER_SOURCE", "wolke"),
         ("IAM_ENABLED", "vielleicht"),
     ],
@@ -57,6 +66,22 @@ def test_no_modules_at_all_is_rejected(base_env):
 def test_german_decimal_comma_is_accepted(base_env):
     base_env["MODULE_EFFICIENCY"] = "0,21"
     assert config_from_env(base_env).module_efficiency == 0.21
+
+
+def test_array_tilts_default_to_the_shared_tilt_and_can_be_overridden(base_env):
+    base_env["TILT_EAST_DEG"] = "15"
+    config = config_from_env(base_env)
+
+    assert config.arrays["east"].tilt == 15
+    assert config.arrays["west"].tilt == config.surface_tilt
+
+
+def test_model_fingerprint_is_stable_and_tracks_model_settings(make_config):
+    baseline = make_config()
+
+    assert model_fingerprint(baseline) == model_fingerprint(make_config())
+    assert model_fingerprint(baseline) != model_fingerprint(make_config(SYSTEM_LOSS_FRACTION=0.15))
+    assert model_fingerprint(baseline) != model_fingerprint(make_config(TILT_EAST_DEG=25))
 
 
 def test_optional_fields_may_be_missing(base_env):

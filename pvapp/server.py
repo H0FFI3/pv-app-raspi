@@ -30,14 +30,15 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
-from . import alphaess_client, paths, settings, storage
+from . import alphaess_client, db, paths, settings
 from .config import Config, ConfigError, config_from_env, effective_env, env_file_candidates
-from .display import build_display_records
+from .display import build_dashboard_metadata, build_display_records
+from .health import health_payload
 from .interactive import show_message
 from .logging_setup import REDACTOR, setup_logging
 from .pages import server_bar, setup_page
 from .report import render_report
-from .updater import Scheduler, StatusStore, Updater, describe_status, next_slot_text
+from .updater import Scheduler, StatusStore, Updater, describe_status, next_slot_text, recent_runs
 
 log = logging.getLogger(__name__)
 
@@ -106,7 +107,12 @@ class AppState:
     def scheduler_settings(self):
         config, _ = self.config()
         usable = bool(config and config.alphaess_app_id and config.alphaess_app_secret)
-        return usable, (config.update_time if config else time(5, 30)), (config.timezone if config else None)
+        retry = (
+            (config.update_retry_first_minutes, config.update_retry_second_minutes)
+            if config
+            else (15, 60)
+        )
+        return usable, (config.update_time if config else time(5, 30)), (config.timezone if config else None), retry
 
 
 # ------------------------------------------------------------------------------ Handler
@@ -184,6 +190,15 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
 
         def do_GET(self) -> None:
             path = urlsplit(self.path).path
+            if path == "/api/health":
+                config, _ = state.config()
+                threshold = config.health_stale_after_hours if config else 36
+                result = health_payload(
+                    state.updater.status.read(),
+                    datetime.now(ZoneInfo(config.timezone)) if config else datetime.now().astimezone(),
+                    threshold,
+                )
+                return self.send_json(result, HTTPStatus.OK if result["ok"] else HTTPStatus.SERVICE_UNAVAILABLE)
             if path == "/api/ping":
                 return self.send_json({"app": "pv-tagesbericht"})
             if path == "/favicon.ico":
@@ -223,8 +238,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     "<p>Die App ist noch nicht eingerichtet. Bitte die Einrichtung am Rechner selbst öffnen.</p>",
                     HTTPStatus.SERVICE_UNAVAILABLE,
                 )
-            payload = storage.load_payload(paths.data_path())
-            records = build_display_records(payload["records"], config)
+            raw_records = db.load_display_records(paths.database_path(), paths.data_path())
+            records = build_display_records(raw_records, config)
             extra = ""
             if self.client_is_loopback() and self.host_is_local():
                 state.updater.poll()
@@ -233,7 +248,11 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     datetime.now(ZoneInfo(config.timezone)), config.update_time, state.updater.status.read()
                 )
                 extra = server_bar(state.token, status, schedule)
-            self.send_html(render_report(records, paths.resource_root(), extra))
+            metadata = build_dashboard_metadata(
+                raw_records, config, datetime.now(ZoneInfo(config.timezone)).date()
+            )
+            metadata["runs"] = recent_runs(state.updater.status.path.with_name("runs.jsonl"))
+            self.send_html(render_report(records, paths.resource_root(), extra, metadata))
 
         def setup_form(self, *, values=None, error_text="", error_fields=()) -> None:
             self.send_html(
@@ -314,7 +333,10 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
 
 
 def create_server(host: str, port: int, state: AppState) -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer((host, port), make_handler(state))
+    class SingleInstanceHTTPServer(ThreadingHTTPServer):
+        allow_reuse_address = False
+
+    server = SingleInstanceHTTPServer((host, port), make_handler(state))
     server.daemon_threads = True
     return server
 

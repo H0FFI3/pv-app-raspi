@@ -1,3 +1,4 @@
+import json
 import subprocess
 from datetime import datetime, time, timedelta, timezone
 
@@ -54,6 +55,41 @@ def test_start_spawns_one_headless_process_and_records_the_state(parts):
     assert updater.start("manual") is False and len(FakePopen.instances) == 1  # nie zwei gleichzeitig
 
 
+def test_finished_runs_are_appended_to_a_bounded_history(parts):
+    updater, status, _ = parts
+    updater.start("schedule")
+    FakePopen.instances[0].finish(0)
+    updater.poll()
+
+    rows = (status.path.with_name("runs.jsonl")).read_text(encoding="utf-8").splitlines()
+    run = json.loads(rows[-1])
+    assert run["ok"] is True and run["trigger"] == "schedule" and run["exit_code"] == 0
+    assert run["duration_seconds"] == 0
+
+
+def test_finished_run_includes_the_child_summary_and_public_history_is_sanitized(parts, monkeypatch, tmp_path):
+    updater, status, _ = parts
+    summary_path = tmp_path / "last-run.json"
+    monkeypatch.setattr(up.paths, "last_run_path", lambda: summary_path)
+    updater.start("schedule")
+    summary_path.write_text(json.dumps({
+        "started_at": "2026-10-18T05:30:01+00:00",
+        "days_ok": 2,
+        "skipped_days": [{"date": "2026-10-17", "reason": "private-path"}],
+        "data_api_calls": 5,
+    }), encoding="utf-8")
+    FakePopen.instances[-1].finish(0)
+    updater.poll()
+
+    history_path = status.path.with_name("runs.jsonl")
+    stored = json.loads(history_path.read_text(encoding="utf-8").splitlines()[-1])
+    public = up.recent_runs(history_path)
+
+    assert stored["days_ok"] == 2 and stored["data_api_calls"] == 5
+    assert public[0]["days_skipped"] == 1
+    assert "private-path" not in json.dumps(public)
+
+
 def test_success_sets_the_success_date_and_allows_the_next_run(parts):
     updater, status, clock = parts
     updater.start("schedule")
@@ -86,6 +122,23 @@ def test_attempts_are_counted_per_day(parts):
     assert status.read()["attempts"] == 1
 
 
+def test_due_retries_failed_runs_with_backoff_and_stops_after_three_attempts():
+    base = {
+        "attempts_date": "2026-10-18",
+        "last_started": "2026-10-18T05:30:00",
+        "last_finished": "2026-10-18T05:31:00",
+        "last_ok": False,
+    }
+
+    assert due(datetime(2026, 10, 18, 5, 45), SLOT, {**base, "attempts": 1}) is False
+    assert due(datetime(2026, 10, 18, 5, 46), SLOT, {**base, "attempts": 1}) is True
+    assert due(datetime(2026, 10, 18, 6, 30), SLOT, {**base, "attempts": 2}) is False
+    assert due(datetime(2026, 10, 18, 6, 31), SLOT, {**base, "attempts": 2}) is True
+    assert due(datetime(2026, 10, 18, 19), SLOT, {**base, "attempts": 3}) is False
+    assert due(datetime(2026, 10, 18, 5, 40), SLOT, {**base, "attempts": 1}, (10, 20)) is False
+    assert due(datetime(2026, 10, 18, 5, 41), SLOT, {**base, "attempts": 1}, (10, 20)) is True
+
+
 def test_a_failing_start_is_recorded_without_crashing(tmp_path):
     def broken(*args, **kwargs):
         raise OSError("nicht gefunden")
@@ -94,6 +147,7 @@ def test_a_failing_start_is_recorded_without_crashing(tmp_path):
     updater = Updater(status, command=lambda: ["x"], popen=broken, now=Clock(datetime(2026, 10, 18, 6)), log_path=lambda: tmp_path / "l.log")
     assert updater.start("manual") is False
     assert status.read()["last_ok"] is False and "nicht gefunden" in status.read()["last_message"]
+    assert status.read()["attempts"] == 1
 
 
 def test_stop_terminates_a_running_update(parts):

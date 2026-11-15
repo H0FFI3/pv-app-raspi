@@ -15,9 +15,17 @@ import tempfile
 from datetime import date, datetime
 from pathlib import Path
 
+from .quality import valid_quality
+
 log = logging.getLogger(__name__)
 
-HOURLY_SIGNAL_KEYS = ("soc_pct", "feed_in_w")
+HOURLY_SIGNAL_KEYS = (
+    "soc_pct",
+    "feed_in_w",
+    "feed_in_max_w",
+    "feed_in_share_at_limit",
+    "feed_in_signed_w",
+)
 
 
 def backup_path(path: Path) -> Path:
@@ -114,6 +122,28 @@ def normalize_record(record: dict, data_start: date | None = None) -> dict | Non
         normalized["weather_source"] = record["weather_source"]
     if record.get("signals_checked") is True:
         normalized["signals_checked"] = True
+    for key in ("config_hash", "model_version", "computed_at"):
+        value = record.get(key)
+        if isinstance(value, str) and value:
+            normalized[key] = value
+    for key in ("poa_kwh_m2",):
+        try:
+            value = float(record[key])
+            if math.isfinite(value) and value >= 0:
+                normalized[key] = value
+        except (KeyError, TypeError, ValueError):
+            pass
+    quality = record.get("quality")
+    if isinstance(quality, dict):
+        normalized_quality = valid_quality(quality)
+        if normalized_quality is not None:
+            normalized["quality"] = normalized_quality
+    try:
+        inverter_power_kw = float(record["inverter_power_kw"])
+        if math.isfinite(inverter_power_kw) and inverter_power_kw > 0:
+            normalized["inverter_power_kw"] = inverter_power_kw
+    except (KeyError, TypeError, ValueError):
+        pass
     return normalized
 
 

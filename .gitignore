@@ -11,3 +11,4 @@ pv-tagesbericht.csv
 node_modules/
 .pytest_cache/
 package-lock.json
+upgrades.md

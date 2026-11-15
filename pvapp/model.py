@@ -51,8 +51,9 @@ def estimate_array_power(
     config: Config,
 ) -> pd.Series:
     """DC-Leistung (W) eines Modulfelds."""
+    tilt = config.surface_tilt if array.tilt is None else array.tilt
     irradiance = pvlib.irradiance.get_total_irradiance(
-        surface_tilt=config.surface_tilt,
+        surface_tilt=tilt,
         surface_azimuth=array.azimuth,
         solar_zenith=solar_position["apparent_zenith"],
         solar_azimuth=solar_position["azimuth"],
@@ -75,7 +76,7 @@ def estimate_array_power(
     effective = poa_global
     if config.iam_enabled:
         aoi = pvlib.irradiance.aoi(
-            config.surface_tilt,
+            tilt,
             array.azimuth,
             solar_position["apparent_zenith"],
             solar_position["azimuth"],
@@ -129,6 +130,42 @@ def estimate_hourly_potential(
         eta_inv_nom=config.nominal_inverter_efficiency,
     ).clip(lower=0)
     return ac_power.resample("h").sum(min_count=1) / 1000
+
+
+def estimate_hourly_poa(
+    weather: pd.DataFrame,
+    elevation: float,
+    config: Config,
+    horizon: pd.Series | None = None,
+) -> pd.Series:
+    """Moduleanzahl-gewichtete Einstrahlung in der Modulebene je Stunde (kWh/m²)."""
+    solar_position = pvlib.solarposition.get_solarposition(
+        weather.index,
+        config.latitude,
+        config.longitude,
+        altitude=elevation,
+        temperature=weather["temp_air"],
+    )
+    if horizon is not None and len(horizon):
+        weather = apply_horizon(weather, solar_position, horizon)
+    dni_extra = pvlib.irradiance.get_extra_radiation(weather.index)
+    module_count = sum(array.modules for array in config.arrays.values())
+    weighted_poa = sum(
+        pvlib.irradiance.get_total_irradiance(
+            surface_tilt=config.surface_tilt if array.tilt is None else array.tilt,
+            surface_azimuth=array.azimuth,
+            solar_zenith=solar_position["apparent_zenith"],
+            solar_azimuth=solar_position["azimuth"],
+            dni=weather["dni"],
+            ghi=weather["ghi"],
+            dhi=weather["dhi"],
+            dni_extra=dni_extra,
+            albedo=config.albedo,
+            model="haydavies",
+        )["poa_global"].fillna(0.0) * array.modules
+        for array in config.arrays.values()
+    )
+    return (weighted_poa / module_count).resample("h").sum(min_count=1) / 1000
 
 
 def estimate_daily_potential(

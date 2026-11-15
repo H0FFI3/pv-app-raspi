@@ -34,8 +34,10 @@ def test_percent_fields_are_converted_in_both_directions():
     assert settings.to_env(efficiency, "21,5") == "0.215"
     assert settings.to_env(field("POWER_TEMPERATURE_COEFFICIENT"), "-0,30") == "-0.003"
     assert settings.to_env(field("SYSTEM_LOSS_FRACTION"), "14") == "0.14"
+    assert settings.to_env(field("QUALITY_MIN_COVERAGE"), "80") == "0.8"
     assert settings.from_env(efficiency, "0.215") == "21.5"
     assert settings.from_env(field("SYSTEM_LOSS_FRACTION"), "0.14") == "14"
+    assert settings.from_env(field("QUALITY_MIN_COVERAGE"), "0.8") == "80"
     assert settings.to_env(efficiency, "abc") == "abc"  # ungültig bleibt ungültig und wird gemeldet
     assert settings.to_env(efficiency, "  ") == ""
 
