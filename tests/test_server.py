@@ -154,6 +154,29 @@ def test_non_local_clients_cannot_reach_setup_or_api(web, monkeypatch):
     assert status == 200 and "pv-bar" not in body and web.state.token not in body
 
 
+def test_public_health_is_read_only_minimal_and_available_to_network_clients(web, monkeypatch):
+    from datetime import datetime
+
+    web.configure()
+    now = datetime.now().astimezone()
+    web.status.update(
+        last_success_date=now.date().isoformat(),
+        last_success_at=now.isoformat(timespec="seconds"),
+        last_ok=True,
+        last_message="C:\\private\\secret",
+    )
+    monkeypatch.setattr(server, "LOOPBACK_ADDRESSES", set())
+
+    status, _, body = web.request("GET", "/api/health")
+    data = json.loads(body)
+
+    assert status == 200
+    assert set(data) == {"ok", "last_success_date", "age_hours", "last_message"}
+    assert data["ok"] and data["age_hours"] == 0
+    assert "private" not in body and "secret" not in body
+    assert web.post_api("/api/update")[0] == 403
+
+
 def test_security_headers_on_all_pages(web):
     web.configure()
     for path in ("/", "/setup", "/api/ping"):
@@ -180,10 +203,23 @@ def test_ping_identifies_the_app_for_the_second_start(web):
 def test_dashboard_shows_data_attribution_and_the_control_bar(web):
     web.configure()
     storage.save_payload({"records": [{"date": "2026-10-14", "actual_kwh": 12.5, "potential_kwh": 15, "sunshine_hours": 6}]}, paths.data_path())
+    web.status.path.with_name("runs.jsonl").write_text(
+        json.dumps({
+            "started_at": "2026-10-14T05:30:00+00:00",
+            "finished_at": "2026-10-14T05:31:00+00:00",
+            "duration_seconds": 60,
+            "days_ok": 2,
+            "skipped_days": [{"date": "2026-10-13", "reason": "internal-path"}],
+            "ok": True,
+            "internal": "secret-path",
+        }) + "\n",
+        encoding="utf-8",
+    )
     status, _, body = web.request("GET", "/")
     assert status == 200 and '"date":"2026-10-14"' in body
     assert 'href="https://open-meteo.com/"' in body and "Weather data by Open-Meteo.com" in body
     assert 'id="pv-bar"' in body and web.state.token in body and 'href="/setup"' in body
+    assert '"days_ok":2' in body and '"days_skipped":1' in body and "secret-path" not in body
 
 
 # ----------------------------------------------------------------------------- API

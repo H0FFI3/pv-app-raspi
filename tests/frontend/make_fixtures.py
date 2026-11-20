@@ -28,6 +28,9 @@ def hourly(shift, missing_actual=False, curtail=False, signals=True):
         if signals:
             point["soc_pct"] = 100.0 if is_curtailed else 60.0
             point["feed_in_w"] = 4000.0 if is_curtailed else 800.0
+            point["feed_in_signed_w"] = 4000.0 if is_curtailed else 800.0
+            if is_curtailed:
+                point["feed_in_max_w"] = 4000.0
         points.append(point)
     return points
 
@@ -38,10 +41,14 @@ def records(count, with_hourly, curtailed_days=(), signals=True):
     for i in range(count):
         item = {
             "date": (start + timedelta(days=i)).isoformat(),
-            "actual_kwh": round(10 + (i % 5) * 1.37, 2),
+            "actual_kwh": 1.0 if i == count - 1 else round(10 + (i % 5) * 1.37, 2),
             "potential_kwh": round(14 + (i % 3) * 0.91, 2),
             "sunshine_hours": round(4 + (i % 4) * 1.1, 2),
+            "poa_kwh_m2": round(1.5 + (i % 4) * 0.2, 2),
+            "config_hash": f"model-{i // max(count // 2, 1)}",
         }
+        if i == count - 1:
+            item["quality"] = {"n_samples": 180, "coverage": 0.7, "integral_kwh": 8, "integral_ratio": 0.8, "flags": ["low_coverage"]}
         if i >= 5:
             item["weather_source"] = "archive" if i < 20 else "forecast"
         if i >= count - with_hourly:
@@ -64,11 +71,49 @@ def main(target: Path) -> None:
     }
     settings = CurtailmentSettings(feed_in_limit_w=4000)
     for name, data in scenarios.items():
-        create_standalone_report(annotate_records(data, settings), project_root(), target / f"{name}.html")
+        metadata = {"installed_kwp": 8.6}
+        if name == "many":
+            metadata.update({
+                "completeness": [
+                    {"date": "2026-10-12", "status": "ok", "flags": []},
+                    {"date": "2026-10-13", "status": "fehlt", "reason": None, "flags": []},
+                    {"date": "2026-10-14", "status": "Wetter=forecast", "flags": ["Wetter=forecast"]},
+                    {"date": "2026-10-15", "status": "übersprungen", "reason": "außerhalb des Backfill-Fensters", "flags": []},
+                ],
+                "completeness_summary": {"missing": 2, "outside_backfill": 1},
+                "tmy_reference": {
+                    "config_hash": "model",
+                    "daily_kwh_by_month_day": {
+                        "09-15": 1.0,
+                        "10-14": 2.5,
+                    },
+                },
+            })
+        create_standalone_report(
+            annotate_records(data, settings), project_root(), target / f"{name}.html", metadata
+        )
 
     status = {"running": False, "ok": True, "text": "Zuletzt aktualisiert: 18.10.2026 06:02"}
     bar = server_bar("TOKEN123", status, "Nächste Aktualisierung: 19.10. um 05:30")
-    (target / "served.html").write_text(render_report(annotate_records(records(5, 2), settings), project_root(), bar), encoding="utf-8")
+    (target / "served.html").write_text(
+        render_report(
+            annotate_records(records(5, 2), settings),
+            project_root(),
+            bar,
+            {
+                "installed_kwp": 8.6,
+                "runs": [{
+                    "started_at": "2026-10-18T05:30:00+00:00",
+                    "finished_at": "2026-10-18T05:31:00+00:00",
+                    "duration_seconds": 60,
+                    "days_ok": 2,
+                    "days_skipped": 1,
+                    "ok": True,
+                }],
+            },
+        ),
+        encoding="utf-8",
+    )
     (target / "setup.html").write_text(setup_page("TOKEN123", current_values({}), has_secret=True), encoding="utf-8")
 
 

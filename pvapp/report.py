@@ -15,13 +15,20 @@ class ReportTemplateError(RuntimeError):
     """Die Vorlage enthält die erwarteten Platzhalter nicht."""
 
 
-def embed_json(records: list[dict]) -> str:
+def embed_json(records: list[dict], metadata: dict | None = None) -> str:
     """JSON für die Einbettung in ein <script>: '<' wird escaped (kein </script> oder <!-- im Inhalt möglich)."""
-    data = json.dumps({"records": records}, ensure_ascii=True, separators=(",", ":"))
+    data = json.dumps({**(metadata or {}), "records": records}, ensure_ascii=True, separators=(",", ":"))
     return data.replace("<", "\\u003c")
 
 
-def build_report_html(records: list[dict], template: str, styles: str, script: str, extra_html: str = "") -> str:
+def build_report_html(
+    records: list[dict],
+    template: str,
+    styles: str,
+    script: str,
+    extra_html: str = "",
+    metadata: dict | None = None,
+) -> str:
     """Stylesheet und Skript werden eingebettet. Das Skript steht vor </body>: Inline-Skripte ignorieren
     ``defer`` und würden im <head> ausgeführt, bevor die Seitenelemente existieren."""
     html, style_count = STYLE_TAG.subn(lambda _: f"<style>\n{styles}\n</style>", template, count=1)
@@ -32,12 +39,12 @@ def build_report_html(records: list[dict], template: str, styles: str, script: s
         raise ReportTemplateError('Vorlage: <script data-inline="script"> nicht gefunden.')
     if html.count("</body>") != 1:
         raise ReportTemplateError("Vorlage: genau ein </body> erwartet.")
-    block = f"<script>window.PV_DAILY_DATA = {embed_json(records)};</script>\n<script>\n{script}\n</script>\n{extra_html}\n"
+    block = f"<script>window.PV_DAILY_DATA = {embed_json(records, metadata)};</script>\n<script>\n{script}\n</script>\n{extra_html}\n"
     # Lambda verhindert, dass Backslashes im Inhalt als Regex-Ersetzung interpretiert werden.
     return re.sub(r"</body>", lambda _: block + "</body>", html, count=1)
 
 
-def render_report(records: list[dict], resource_root: Path, extra_html: str = "") -> str:
+def render_report(records: list[dict], resource_root: Path, extra_html: str = "", metadata: dict | None = None) -> str:
     site = resource_root / "site"
     return build_report_html(
         records,
@@ -45,11 +52,14 @@ def render_report(records: list[dict], resource_root: Path, extra_html: str = ""
         (site / "styles.css").read_text(encoding="utf-8"),
         (site / "dashboard.js").read_text(encoding="utf-8"),
         extra_html,
+        metadata,
     )
 
 
-def create_standalone_report(records: list[dict], resource_root: Path, report_path: Path) -> Path:
-    html = render_report(records, resource_root)
+def create_standalone_report(
+    records: list[dict], resource_root: Path, report_path: Path, metadata: dict | None = None
+) -> Path:
+    html = render_report(records, resource_root, metadata=metadata)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(html, encoding="utf-8")
     return report_path

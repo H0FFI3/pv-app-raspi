@@ -1,0 +1,1978 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#eef2ef">
+    <meta name="description" content="Täglicher Überblick über PV-Ertrag, Modellpotenzial und Sonnenscheindauer.">
+    <title>PV-Tagesbericht</title>
+    <style>
+:root {
+  color-scheme: light;
+  --page: #eef2ef;
+  --surface: #fff;
+  --surface-soft: #f6f8f6;
+  --ink: #172a25;
+  --muted: #687872;
+  --line: #d9e2dd;
+  --green: #197459;
+  --green-deep: #123c31;
+  --green-pale: #e2f1e8;
+  --lime: #d9ef78;
+  --orange: #dc7b52;
+  --sun: #e5ad38;
+  --radius: 6px;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  color: var(--ink);
+  background-color: var(--page);
+  background-image: repeating-linear-gradient(0deg, transparent, transparent 39px, rgb(24 64 48 / 2.5%) 40px);
+}
+button { font: inherit; }
+.topbar {
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 max(28px, calc((100vw - 1220px) / 2));
+  border-bottom: 1px solid var(--line);
+  background: rgb(255 255 255 / 86%);
+}
+.brand { display: inline-flex; align-items: center; gap: 11px; color: inherit; text-decoration: none; }
+.brand-mark { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 4px; background: var(--green-deep); color: var(--lime); font-size: 12px; font-weight: 800; letter-spacing: 0.04em; }
+.brand-name, .eyebrow, .updated-label, .metric-index, .chart-unit, .history-count { font-family: Consolas, "Courier New", monospace; font-weight: 600; letter-spacing: 0.04em; }
+.brand-name { font-size: 11px; }
+.brand-divider { padding: 0 6px; color: var(--green); }
+.connection-state { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sun); }
+.connection-state[data-state="ready"] .state-dot { background: var(--green); }
+.connection-state[data-state="error"] .state-dot { background: var(--orange); }
+.dashboard { width: min(1220px, calc(100% - 56px)); margin: 0 auto; }
+.page-heading { display: flex; min-height: 188px; align-items: center; justify-content: space-between; gap: 24px; padding: 28px 0 30px; animation: rise-in 420ms ease-out both; }
+.eyebrow { margin: 0 0 11px; color: var(--green); font-size: 10px; line-height: 1.5; }
+.eyebrow span { padding: 0 5px; color: #a0aea6; }
+h1, h2, h3, p { margin-top: 0; }
+h1 { margin-bottom: 7px; font-size: 32px; font-weight: 700; letter-spacing: 0; line-height: 1.15; }
+.heading-note { margin-bottom: 0; color: var(--muted); font-size: 14px; }
+.updated-block { display: grid; min-width: 174px; gap: 8px; justify-items: end; }
+.updated-label { color: var(--muted); font-size: 9px; }
+.updated-block time { font-size: 13px; font-weight: 700; }
+.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; margin-bottom: 37px; }
+.metric { min-width: 0; min-height: 145px; padding: 18px 20px 16px; border: 1px solid var(--line); border-top: 3px solid var(--green); border-radius: var(--radius); background: var(--surface); animation: rise-in 460ms ease-out both; }
+.metric:nth-child(2) { border-top-color: var(--orange); animation-delay: 60ms; }
+.metric:nth-child(3) { border-top-color: var(--sun); animation-delay: 120ms; }
+.metric-heading { display: flex; align-items: center; justify-content: space-between; }
+.metric-heading h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.metric-index { color: #9ba9a2; font-size: 10px; }
+.metric-value { display: flex; align-items: baseline; gap: 8px; margin: 17px 0 5px; font-variant-numeric: tabular-nums; }
+.metric-value > span:first-child { font-size: 31px; font-weight: 700; line-height: 1; }
+.metric-unit { color: var(--muted); font-family: Consolas, "Courier New", monospace; font-size: 12px; }
+.metric-caption { margin: 0; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.model-warning { padding: 11px 14px; border: 1px solid var(--orange); border-radius: var(--radius); background: var(--surface); color: var(--text); }
+.public-status { padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--muted); font-size: 12px; }
+.public-status[data-state="stale"] { border-color: var(--red); color: var(--red); }
+.section-heading { display: flex; min-height: 58px; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 13px; }
+.section-heading .eyebrow { margin-bottom: 5px; }
+.section-heading h2 { margin-bottom: 0; font-size: 20px; font-weight: 700; }
+.chart-actions { display: flex; align-items: center; gap: 10px; }
+.range-control { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); }
+.range-control button { min-width: 42px; min-height: 30px; padding: 0 9px; border: 0; border-radius: 3px; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 600; }
+.range-control button[aria-pressed="true"] { background: var(--green-deep); color: #fff; }
+.range-control button:focus-visible, .export-button:focus-visible, .brand:focus-visible { outline: 3px solid var(--sun); outline-offset: 2px; }
+.export-button { min-height: 38px; padding: 0 13px; border: 1px solid var(--green-deep); border-radius: 4px; background: var(--green-deep); color: #fff; cursor: pointer; font-size: 11px; font-weight: 700; }
+.export-button:hover:not(:disabled) { background: var(--green); }
+.export-button:disabled { border-color: #b7c5bd; background: #b7c5bd; cursor: not-allowed; }
+.charts { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(260px, 0.85fr); gap: 13px; align-items: stretch; }
+.chart-panel { min-width: 0; padding: 19px 20px 15px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.chart-heading { display: flex; min-height: 43px; align-items: start; justify-content: space-between; gap: 10px; }
+.chart-heading h3 { margin: 0 0 4px; font-size: 14px; }
+.chart-heading p { margin: 0; color: var(--muted); font-size: 11px; }
+.chart-unit { padding-top: 2px; color: var(--muted); font-size: 9px; white-space: nowrap; }
+.chart-wrap { position: relative; width: 100%; margin-top: 13px; }
+.energy-chart-wrap, .sunshine-chart-wrap { height: 250px; }
+.charts-single { grid-template-columns: minmax(0, 1fr); margin-top: 13px; }
+.ratio-chart-wrap { height: 200px; }
+.profile-chart-wrap { height: 220px; }
+.analysis-section { margin-top: 34px; }
+.analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.analysis-grid .chart-panel { min-width: 0; }
+.analysis-subheading { margin-top: 16px; }
+.analysis-subheading h4 { margin: 0; font-size: 13px; font-weight: 700; }
+.analysis-chart-wrap { height: 230px; }
+.analysis-heatmap-wrap { height: 300px; }
+.analysis-list { min-height: 110px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.analysis-list ul { margin: 0; padding-left: 18px; color: var(--ink); }
+.analysis-list li + li { margin-top: 5px; }
+.analysis-list p { margin: 10px 0 0; color: var(--muted); font-size: 10px; }
+.analysis-static-empty { position: static; min-height: 110px; }
+.regression-swatch { width: 14px; height: 2px; border-radius: 0; background: var(--green); }
+.residual-positive { background: var(--green); }
+.residual-negative { background: var(--orange); }
+.heatmap-low { background: var(--orange); }
+.heatmap-mid { background: var(--sun); }
+.heatmap-high { background: var(--green); }
+.limit-swatch { background: var(--orange); }
+.battery-swatch { background: var(--green); }
+.hourly-section .chart-panel + .chart-panel { margin-top: 13px; }
+.curtailed-swatch { background: rgb(220 123 82 / 25%); border: 1px solid var(--orange); }
+.reference-swatch { width: 14px; height: 0; border-top: 2px dashed var(--orange); border-radius: 0; background: none; }
+.chart-hint { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.summary-section { margin-top: 36px; }
+.page-notes { margin-top: 26px; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.page-notes p { max-width: 900px; margin: 0 0 5px; }
+.hourly-section { margin-top: 32px; }
+.hourly-heading { align-items: end; }
+.hourly-date-label { display: grid; gap: 5px; color: var(--muted); font-family: Consolas, "Courier New", monospace; font-size: 9px; font-weight: 600; letter-spacing: 0.04em; }
+.hourly-date-label select { min-width: 150px; min-height: 36px; padding: 0 30px 0 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--ink); font: 12px "Trebuchet MS", "Segoe UI", sans-serif; }
+.hourly-chart-wrap { height: 270px; }
+.chart-wrap canvas { display: block; width: 100%; height: 100%; }
+.chart-tooltip { position: absolute; z-index: 3; max-width: min(240px, calc(100% - 12px)); padding: 9px 11px; border: 1px solid #34554a; border-radius: 4px; background: #172a25; color: #fff; box-shadow: 0 5px 18px rgb(18 60 49 / 18%); font-size: 11px; line-height: 1.55; pointer-events: none; transform: translate(-50%, -100%); white-space: pre-line; }
+.chart-tooltip[hidden] { display: none; }
+.empty-state { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; padding: 20px; border: 1px dashed #c9d5ce; border-radius: 4px; background: var(--surface-soft); text-align: center; }
+.empty-state[hidden] { display: none; }
+.empty-mark { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 50%; background: var(--green-pale); color: var(--green-deep); font-family: Consolas, "Courier New", monospace; font-size: 10px; }
+.empty-state p { margin: 0; font-size: 13px; font-weight: 700; }
+.empty-state > span:last-child { max-width: 260px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.empty-state-compact > span { color: var(--muted); font-size: 12px; }
+.legend { display: flex; gap: 17px; padding-top: 7px; color: var(--muted); font-size: 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.legend-swatch { width: 9px; height: 9px; border-radius: 2px; }
+.actual-swatch { background: var(--green); }
+.potential-swatch { width: 14px; height: 2px; border-radius: 0; background: var(--orange); }
+.history-section { margin-top: 36px; }
+.history-heading { margin-bottom: 10px; }
+.history-count { margin: 0 0 3px; color: var(--muted); font-size: 10px; }
+.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.completeness-section { margin-top: 34px; }
+.run-history-section { margin-top: 34px; }
+.completeness-legend { display: flex; flex-wrap: wrap; gap: 9px 16px; margin: 0 0 12px; color: var(--muted); font-size: 12px; }
+.completeness-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.completeness-swatch { width: 12px; height: 12px; display: inline-block; border-radius: 3px; background: var(--green); }
+.completeness-flagged { background: var(--sun); }
+.completeness-missing { background: var(--red); }
+.completeness-skipped { background: #8b9691; }
+.completeness-calendar { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.completeness-month { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.completeness-month h3 { margin: 0 0 8px; font-size: 13px; }
+.completeness-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.completeness-day { min-height: 23px; display: grid; place-items: center; border-radius: 4px; background: var(--green); color: #fff; font: 10px Consolas, monospace; }
+.completeness-day.empty { background: transparent; }
+.completeness-day.flagged { background: var(--sun); color: #302400; }
+.completeness-day.missing { background: var(--red); }
+.completeness-day.skipped { background: #8b9691; }
+.analysis-reference-summary { display: grid; gap: 8px; padding: 14px; color: var(--muted); font-size: 13px; }
+table { width: 100%; border-collapse: collapse; text-align: left; }
+th, td { padding: 11px 16px; border-bottom: 1px solid #e8eeea; font-size: 12px; white-space: nowrap; }
+th { background: var(--surface-soft); color: var(--muted); font-family: Consolas, "Courier New", monospace; font-size: 9px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+tbody tr:last-child td { border-bottom: 0; }
+td:not(:first-child) { font-variant-numeric: tabular-nums; }
+td:first-child { font-weight: 600; }
+.table-empty { padding: 19px 16px; color: var(--muted); text-align: center; }
+.page-footer { display: flex; justify-content: space-between; gap: 16px; padding: 19px 0 25px; color: var(--muted); font-size: 10px; }
+.page-footer span span { padding: 0 3px; color: var(--green); }
+@keyframes rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 760px) {
+  .topbar { min-height: 60px; padding: 0 18px; }
+  .dashboard { width: calc(100% - 36px); }
+  .page-heading { min-height: 160px; }
+  .charts { grid-template-columns: 1fr; }
+  .analysis-grid { grid-template-columns: 1fr; }
+  .sunshine-chart-wrap, .energy-chart-wrap { height: 230px; }
+  .hourly-chart-wrap { height: 250px; }
+  .ratio-chart-wrap, .profile-chart-wrap, .analysis-chart-wrap { height: 210px; }
+  .analysis-heatmap-wrap { height: 270px; }
+}
+@media (max-width: 540px) {
+  .topbar { padding: 0 14px; }
+  .connection-state { max-width: 150px; font-size: 10px; }
+  .dashboard { width: calc(100% - 28px); }
+  .page-heading { min-height: auto; align-items: start; flex-direction: column; gap: 18px; padding: 28px 0 22px; }
+  h1 { font-size: 27px; }
+  .updated-block { justify-items: start; }
+  .metrics { grid-template-columns: 1fr; gap: 9px; margin-bottom: 31px; }
+  .metric { min-height: 118px; padding: 14px 16px; }
+  .metric-value { margin-top: 12px; }
+  .metric-value > span:first-child { font-size: 27px; }
+  .section-heading { align-items: start; flex-direction: column; gap: 12px; }
+  .chart-actions { width: 100%; justify-content: space-between; flex-wrap: wrap; }
+  .range-control button { min-width: 38px; padding: 0 7px; }
+  .chart-panel { padding: 16px 13px 13px; }
+  .hourly-heading { align-items: start; }
+  .hourly-date-label, .hourly-date-label select { width: 100%; }
+  .chart-heading p { max-width: 225px; line-height: 1.4; }
+  .chart-unit { padding-top: 2px; font-size: 8px; }
+  .analysis-grid .legend { flex-wrap: wrap; gap: 9px 13px; }
+  .page-footer { flex-direction: column; gap: 7px; }
+  th, td { padding: 10px 11px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+.page-footer a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+</style>
+    
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="brand">
+        <span class="brand-mark" aria-hidden="true">PV</span>
+        <span class="brand-name">TAGESBERICHT<span class="brand-divider">/</span>01</span>
+      </span>
+      <div class="connection-state" id="connection-state" data-state="loading">
+        <span class="state-dot" aria-hidden="true"></span>
+        <span id="connection-label">Daten werden geladen</span>
+      </div>
+    </header>
+
+    <main class="dashboard">
+      <section class="page-heading" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">ERTRAG <span aria-hidden="true">/</span> MODELL <span aria-hidden="true">/</span> SONNE</p>
+          <h1 id="page-title">PV-Tagesbericht</h1>
+          <p class="heading-note">Erzeugung, Wetterpotenzial und Sonne im täglichen Vergleich.</p>
+        </div>
+        <div class="updated-block">
+          <span class="updated-label">LETZTER DATENSATZ</span>
+          <time id="latest-date">Noch keine Daten</time>
+        </div>
+      </section>
+
+      <p class="model-warning" id="model-provenance-warning" role="status" hidden></p>
+      <p class="public-status" id="public-status" role="status" aria-live="polite" hidden></p>
+
+      <section class="metrics" aria-label="Kennzahlen des letzten Tages">
+        <article class="metric metric-actual">
+          <div class="metric-heading"><h2>Ist-Ertrag</h2><span class="metric-index">01</span></div>
+          <p class="metric-value"><span id="actual-value">-</span><span class="metric-unit">kWh</span></p>
+          <p class="metric-caption" id="actual-caption">AlphaESS Tageswert</p>
+        </article>
+        <article class="metric metric-potential">
+          <div class="metric-heading"><h2>Potentieller Ertrag</h2><span class="metric-index">02</span></div>
+          <p class="metric-value"><span id="potential-value">-</span><span class="metric-unit">kWh</span></p>
+          <p class="metric-caption" id="potential-caption">Wetterbasiertes PV-Modell</p>
+        </article>
+        <article class="metric metric-sunshine">
+          <div class="metric-heading"><h2>Sonnenstunden</h2><span class="metric-index">03</span></div>
+          <p class="metric-value"><span id="sunshine-value">-</span><span class="metric-unit">h</span></p>
+          <p class="metric-caption">WMO-Sonnenscheindauer</p>
+        </article>
+        <article class="metric">
+          <div class="metric-heading"><h2>Spezifischer Ertrag</h2><span class="metric-index">04</span></div>
+          <p class="metric-value"><span id="specific-yield-value">-</span><span class="metric-unit">kWh/kWp</span></p>
+          <p class="metric-caption">Ist-Ertrag je installierter Leistung</p>
+        </article>
+        <article class="metric">
+          <div class="metric-heading"><h2>Performance Ratio</h2><span class="metric-index">05</span></div>
+          <p class="metric-value"><span id="performance-ratio-value">-</span><span class="metric-unit">%</span></p>
+          <p class="metric-caption">Normiert auf Einstrahlung in Modulebene</p>
+        </article>
+        <article class="metric">
+          <div class="metric-heading"><h2>Einstrahlung in Modulebene</h2><span class="metric-index">06</span></div>
+          <p class="metric-value"><span id="poa-value">-</span><span class="metric-unit">kWh/m²</span></p>
+          <p class="metric-caption">Modulanzahl-gewichtete POA</p>
+        </article>
+      </section>
+
+      <section class="section-heading" aria-label="Zeitraum und Export">
+        <div><p class="eyebrow">VERLAUF</p><h2>Tage im Vergleich</h2></div>
+        <div class="chart-actions">
+          <div class="range-control" role="group" aria-label="Angezeigter Zeitraum">
+            <button type="button" data-range="7" aria-pressed="false">7 T</button>
+            <button type="button" data-range="30" aria-pressed="true">30 T</button>
+            <button type="button" data-range="90" aria-pressed="false">90 T</button>
+            <button type="button" data-range="all" aria-pressed="false">Alle</button>
+          </div>
+          <button class="export-button" id="export-button" type="button" disabled>CSV exportieren</button>
+        </div>
+      </section>
+
+      <section class="charts" aria-label="Tägliche Diagramme">
+        <article class="chart-panel energy-panel">
+          <div class="chart-heading">
+            <div><h3>Erzeugte Energie</h3><p>Gemessener Ertrag gegenüber potentieller Erzeugung</p></div>
+            <div class="chart-unit">kWh / Tag</div>
+          </div>
+          <div class="chart-wrap energy-chart-wrap">
+            <canvas id="energy-chart" aria-label="Täglicher Ist-Ertrag und potentieller Ertrag. Mit Maus oder Fingertipp Tageswerte anzeigen." role="img" tabindex="0" aria-describedby="energy-tooltip" data-tooltip-id="energy-tooltip"></canvas>
+            <div class="chart-tooltip" id="energy-tooltip" role="tooltip" hidden></div>
+            <div class="empty-state" id="energy-empty" hidden>
+              <span class="empty-mark" aria-hidden="true">01</span>
+              <p>Noch keine Tagesdaten</p>
+              <span>Der erste Datensatz erscheint nach dem ersten vollständigen Erfassungstag.</span>
+            </div>
+          </div>
+          <div class="legend" aria-label="Diagrammlegende">
+            <span><i class="legend-swatch actual-swatch" aria-hidden="true"></i>Ist-Ertrag</span>
+            <span><i class="legend-swatch potential-swatch" aria-hidden="true"></i>Potentieller Ertrag</span>
+          </div>
+          <p class="chart-hint" id="potential-model-note">Das Potenzial wurde mit einer konsistenten Modellkonfiguration berechnet. Gleiche Farben bedeuten gleiche Berechnungsversion.</p>
+        </article>
+        <article class="chart-panel sunshine-panel">
+          <div class="chart-heading">
+            <div><h3>Sonnenschein</h3><p>Direkte Strahlung über WMO-Schwelle</p></div>
+            <div class="chart-unit">Stunden / Tag</div>
+          </div>
+          <div class="chart-wrap sunshine-chart-wrap">
+            <canvas id="sunshine-chart" aria-label="Tägliche Sonnenstunden. Mit Maus oder Fingertipp Tageswerte anzeigen." role="img" tabindex="0" aria-describedby="sunshine-tooltip" data-tooltip-id="sunshine-tooltip"></canvas>
+            <div class="chart-tooltip" id="sunshine-tooltip" role="tooltip" hidden></div>
+            <div class="empty-state empty-state-compact" id="sunshine-empty" hidden><span>Noch keine Sonnenscheindaten</span></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="charts charts-single" aria-label="Verhältnis von Ist-Ertrag zu Potenzial">
+        <article class="chart-panel ratio-panel">
+          <div class="chart-heading">
+            <div><h3>Ist im Verhältnis zum Potenzial</h3><p>Anteil des modellierten Ertrags, der tatsächlich erzeugt wurde</p></div>
+            <div class="chart-unit">% / Tag</div>
+          </div>
+          <div class="chart-wrap ratio-chart-wrap">
+            <canvas id="ratio-chart" aria-label="Tägliches Verhältnis von Ist-Ertrag zu Potenzial. Mit Maus, Fingertipp oder Pfeiltasten Tageswerte anzeigen." role="img" tabindex="0" aria-describedby="ratio-tooltip" data-tooltip-id="ratio-tooltip"></canvas>
+            <div class="chart-tooltip" id="ratio-tooltip" role="tooltip" hidden></div>
+            <div class="empty-state empty-state-compact" id="ratio-empty" hidden><span>Noch keine Daten</span></div>
+          </div>
+          <div class="legend" aria-label="Legende Verhältnis">
+            <span><i class="legend-swatch actual-swatch" aria-hidden="true"></i>Ist / Potenzial</span>
+            <span><i class="legend-swatch reference-swatch" aria-hidden="true"></i>100 %</span>
+          </div>
+          <p class="chart-hint">100 % bedeutet: Der Tagesertrag entspricht genau dem modellierten Potenzial. Werte darunter zeigen Einschränkungen durch Abregelung, Verschattung, Ausfälle oder Wetter.</p>
+        </article>
+      </section>
+
+      <section class="hourly-section" aria-labelledby="hourly-title">
+        <div class="section-heading hourly-heading">
+          <div><p class="eyebrow">TAGESPROFIL</p><h2 id="hourly-title">Stundenverlauf</h2></div>
+          <label class="hourly-date-label" for="hourly-date">Tag
+            <select id="hourly-date" disabled aria-label="Tag für Stundenverlauf"></select>
+          </label>
+        </div>
+        <article class="chart-panel hourly-panel">
+          <div class="chart-heading">
+            <div><h3>PV-Ertrag je Stunde</h3><p>AlphaESS-Leistungsmessung gegenüber Wettermodell</p></div>
+            <div class="chart-unit">kWh / Stunde</div>
+          </div>
+          <div class="chart-wrap hourly-chart-wrap">
+            <canvas id="hourly-chart" aria-label="Stündlicher Ist-Ertrag und potentieller Ertrag" role="img" tabindex="0" aria-describedby="hourly-tooltip" data-tooltip-id="hourly-tooltip" hidden></canvas>
+            <div class="chart-tooltip" id="hourly-tooltip" role="tooltip" hidden></div>
+            <div class="empty-state empty-state-compact" id="hourly-empty">
+              <span>Stundenprofile erscheinen ab dem nächsten Erfassungslauf.</span>
+            </div>
+          </div>
+          <div class="legend" aria-label="Stundenchart-Legende">
+            <span><i class="legend-swatch actual-swatch" aria-hidden="true"></i>Ist-Ertrag</span>
+            <span><i class="legend-swatch potential-swatch" aria-hidden="true"></i>Potentieller Ertrag</span>
+            <span id="hourly-curtailed-legend" hidden><i class="legend-swatch curtailed-swatch" aria-hidden="true"></i>Abregelung wahrscheinlich</span>
+          </div>
+          <p class="chart-hint">Grün zeigt die gemessene Leistung je Stunde, die farbige Linie das modellierte Potenzial. Wenn die grüne Kurve deutlich darunter liegt, ist der Wirkungsgrad geringer als erwartet oder es greift Abregelung.</p>
+          <p class="chart-hint" id="hourly-curtailment-note"></p>
+        </article>
+        <article class="chart-panel profile-panel">
+          <div class="chart-heading">
+            <div><h3>Abweichung nach Tageszeit</h3><p>Durchschnittliches Verhältnis Ist/Potenzial je Stunde über alle Tage mit Stundenprofil</p></div>
+            <div class="chart-unit">% je Stunde</div>
+          </div>
+          <div class="chart-wrap profile-chart-wrap">
+            <canvas id="profile-chart" aria-label="Durchschnittliches Verhältnis von Ist-Ertrag zu Potenzial je Tagesstunde" role="img" tabindex="0" aria-describedby="profile-tooltip" data-tooltip-id="profile-tooltip" hidden></canvas>
+            <div class="chart-tooltip" id="profile-tooltip" role="tooltip" hidden></div>
+            <div class="empty-state empty-state-compact" id="profile-empty"><span id="profile-empty-text">Die Auswertung erscheint ab 5 Tagen mit Stundenprofil.</span></div>
+          </div>
+          <div class="legend" aria-label="Legende Tageszeit">
+            <span><i class="legend-swatch actual-swatch" aria-hidden="true"></i>Ø Ist / Potenzial</span>
+            <span><i class="legend-swatch reference-swatch" aria-hidden="true"></i>100 %</span>
+          </div>
+          <p class="chart-hint">Stunden, die dauerhaft deutlich unter 100 % liegen, deuten auf Verschattung hin. Als abgeregelt erkannte Stunden sind ausgenommen.</p>
+          <p class="chart-hint" id="profile-note"></p>
+        </article>
+      </section>
+
+      <section class="analysis-section" aria-labelledby="analysis-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">ANALYSE</p><h2 id="analysis-title">Modellgüte und Muster</h2></div>
+        </div>
+        <p class="chart-hint" id="analysis-metrics" aria-live="polite"></p>
+        <div class="analysis-grid">
+          <article class="chart-panel">
+            <div class="chart-heading">
+              <div><h3>Ist-Ertrag gegen Potenzial</h3><p>1:1-Referenz und lineare Regression je Tag</p></div>
+              <div class="chart-unit">kWh / Tag</div>
+            </div>
+            <div class="chart-wrap analysis-chart-wrap">
+              <canvas id="analysis-scatter" aria-label="Streudiagramm Ist-Ertrag gegen Potenzial mit 1 zu 1 Referenz und Regression" role="img" tabindex="0" aria-describedby="analysis-scatter-tooltip" data-tooltip-id="analysis-scatter-tooltip" hidden></canvas>
+              <div class="chart-tooltip" id="analysis-scatter-tooltip" role="tooltip" hidden></div>
+              <div class="empty-state empty-state-compact" id="analysis-scatter-empty"><span>Für die Auswertung werden mindestens zwei Tage mit Ist- und Potenzialwert benötigt.</span></div>
+            </div>
+            <p class="chart-hint" id="analysis-regression-note"></p>
+            <div class="legend" aria-label="Legende Streudiagramm">
+              <span><i class="legend-swatch actual-swatch" aria-hidden="true"></i>Tageswerte</span>
+              <span><i class="legend-swatch reference-swatch" aria-hidden="true"></i>1:1-Linie</span>
+              <span><i class="legend-swatch regression-swatch" aria-hidden="true"></i>Regression</span>
+            </div>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading">
+              <div><h3>Residuen je Tag</h3><p>Ist-Ertrag minus Modellpotenzial</p></div>
+              <div class="chart-unit">kWh / Tag</div>
+            </div>
+            <div class="chart-wrap analysis-chart-wrap">
+              <canvas id="analysis-residuals" aria-label="Tägliche Residuen: Ist-Ertrag minus Potenzial" role="img" tabindex="0" aria-describedby="analysis-residuals-tooltip" data-tooltip-id="analysis-residuals-tooltip" hidden></canvas>
+              <div class="chart-tooltip" id="analysis-residuals-tooltip" role="tooltip" hidden></div>
+              <div class="empty-state empty-state-compact" id="analysis-residuals-empty"><span>Residuen erscheinen ab zwei vollständigen Tageswerten.</span></div>
+            </div>
+            <div class="legend" aria-label="Legende Residuen">
+              <span><i class="legend-swatch residual-positive" aria-hidden="true"></i>Über Modell</span>
+              <span><i class="legend-swatch residual-negative" aria-hidden="true"></i>Unter Modell</span>
+            </div>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading">
+              <div><h3>Verteilung Ist / Potenzial</h3><p>Häufigkeit des Tagesverhältnisses</p></div>
+              <div class="chart-unit">% der Tage</div>
+            </div>
+            <div class="chart-wrap analysis-chart-wrap">
+              <canvas id="analysis-histogram" aria-label="Histogramm der täglichen Ist- zu Potenzial-Verhältnisse" role="img" tabindex="0" aria-describedby="analysis-histogram-tooltip" data-tooltip-id="analysis-histogram-tooltip" hidden></canvas>
+              <div class="chart-tooltip" id="analysis-histogram-tooltip" role="tooltip" hidden></div>
+              <div class="empty-state empty-state-compact" id="analysis-histogram-empty"><span>Das Histogramm erscheint ab drei gültigen Tagesverhältnissen.</span></div>
+            </div>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading">
+              <div><h3>30-Tage-Trend</h3><p>Gleitender Median von Ist-Ertrag und Potenzial</p></div>
+              <div class="chart-unit">kWh / Tag</div>
+            </div>
+            <div class="chart-wrap analysis-chart-wrap">
+              <canvas id="analysis-trend" aria-label="Gleitender 30-Tage-Median von Ist-Ertrag und Potenzial" role="img" tabindex="0" aria-describedby="analysis-trend-tooltip" data-tooltip-id="analysis-trend-tooltip" hidden></canvas>
+              <div class="chart-tooltip" id="analysis-trend-tooltip" role="tooltip" hidden></div>
+              <div class="empty-state empty-state-compact" id="analysis-trend-empty"><span>Für einen Trend werden mindestens sieben Tageswerte benötigt.</span></div>
+            </div>
+            <div class="legend" aria-label="Legende 30-Tage-Trend">
+              <span><i class="legend-swatch actual-swatch" aria-hidden="true"></i>Ist-Ertrag</span>
+              <span><i class="legend-swatch potential-swatch" aria-hidden="true"></i>Potenzial</span>
+            </div>
+            <p class="chart-hint" id="analysis-annual-note"></p>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading">
+              <div><h3>Stunden-Heatmap</h3><p>Ist / Potenzial nach Stunde und Tag</p></div>
+              <div class="chart-unit">% des Potenzials</div>
+            </div>
+            <div class="chart-wrap analysis-heatmap-wrap">
+              <canvas id="analysis-heatmap" aria-label="Heatmap des stündlichen Ist- zu Potenzial-Verhältnisses nach Tag" role="img" tabindex="0" aria-describedby="analysis-heatmap-tooltip" data-tooltip-id="analysis-heatmap-tooltip" hidden></canvas>
+              <div class="chart-tooltip" id="analysis-heatmap-tooltip" role="tooltip" hidden></div>
+              <div class="empty-state empty-state-compact" id="analysis-heatmap-empty"><span>Für die Heatmap werden gespeicherte Stundenprofile mit Ist- und Potenzialwerten benötigt.</span></div>
+            </div>
+            <div class="legend" aria-label="Legende Stunden-Heatmap">
+              <span><i class="legend-swatch heatmap-low" aria-hidden="true"></i>unter 50 %</span>
+              <span><i class="legend-swatch heatmap-mid" aria-hidden="true"></i>50–100 %</span>
+              <span><i class="legend-swatch heatmap-high" aria-hidden="true"></i>über 100 %</span>
+            </div>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading">
+              <div><h3>Abregelung nach Monat</h3><p>Ermittelte entgangene Energie, nach Ursache</p></div>
+              <div class="chart-unit">kWh / Monat</div>
+            </div>
+            <div class="chart-wrap analysis-chart-wrap">
+              <canvas id="analysis-curtailment" aria-label="Monatliche entgangene Energie durch Einspeiselimit und vollen Akku" role="img" tabindex="0" aria-describedby="analysis-curtailment-tooltip" data-tooltip-id="analysis-curtailment-tooltip" hidden></canvas>
+              <div class="chart-tooltip" id="analysis-curtailment-tooltip" role="tooltip" hidden></div>
+              <div class="empty-state empty-state-compact" id="analysis-curtailment-empty"><span>Für diese Auswertung werden Stunden mit erkannter Abregelungsursache benötigt.</span></div>
+            </div>
+            <div class="legend" aria-label="Legende Abregelungsursachen">
+              <span><i class="legend-swatch limit-swatch" aria-hidden="true"></i>Einspeiselimit</span>
+              <span><i class="legend-swatch battery-swatch" aria-hidden="true"></i>Akku voll</span>
+            </div>
+            <p class="chart-hint">Schätzung aus den markierten Stunden (Potenzial minus Ist); Modellabweichungen können enthalten sein.</p>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading"><div><h3>Auffällige Tage</h3><p>Robuste Abweichung des Tagesverhältnisses (MAD)</p></div></div>
+            <div class="analysis-list empty-state-compact" id="analysis-anomalies" aria-live="polite"></div>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading"><div><h3>Soll-Ist-Referenz</h3><p>PVGIS-TMY nach Monat und Jahr</p></div></div>
+            <div class="empty-state empty-state-compact" id="analysis-reference-empty"><span id="analysis-reference-empty-text">Keine PVGIS-TMY-Referenz vorhanden. Mit <code>python analyze_pv.py</code> lässt sie sich berechnen.</span></div>
+            <div class="analysis-reference-summary" id="analysis-reference-summary" hidden></div>
+          </article>
+          <article class="chart-panel">
+            <div class="chart-heading"><div><h3>Energiesystem</h3><p>Eigenverbrauch, Autarkie, Netz und Akku</p></div></div>
+            <div class="chart-heading analysis-subheading">
+              <div><h4>Akku-Ladezustand</h4><p>Stundenverlauf des letzten Tages mit SOC-Messwerten</p></div>
+              <div class="chart-unit">% SOC</div>
+            </div>
+            <div class="chart-wrap analysis-chart-wrap">
+              <canvas id="analysis-soc" aria-label="Stündlicher Akku-Ladezustand" role="img" tabindex="0" aria-describedby="analysis-soc-tooltip" data-tooltip-id="analysis-soc-tooltip" hidden></canvas>
+              <div class="chart-tooltip" id="analysis-soc-tooltip" role="tooltip" hidden></div>
+              <div class="empty-state empty-state-compact" id="analysis-soc-empty"><span>Keine gespeicherten Akku-Ladezustände für einen Stundenverlauf vorhanden.</span></div>
+            </div>
+            <div class="empty-state empty-state-compact analysis-static-empty"><span>Eigenverbrauch, Autarkie sowie Netzbezug und -einspeisung als Energiemengen können aus den vorhandenen Tages- und Stundenwerten nicht zuverlässig berechnet werden.</span></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="summary-section" aria-labelledby="summary-title">
+        <div class="section-heading history-heading">
+          <div><p class="eyebrow">SUMMEN</p><h2 id="summary-title">Zeiträume im Überblick</h2></div>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th scope="col">Zeitraum</th><th scope="col">Tage</th><th scope="col">Ist-Ertrag</th><th scope="col">Potentieller Ertrag</th><th scope="col">Ist/Potenzial</th><th scope="col">Sonne</th><th scope="col">kWh/kWp</th><th scope="col">POA kWh/m²</th><th scope="col">PR</th><th scope="col">Abregelung</th></tr></thead>
+            <tbody id="summary-body">
+              <tr><td class="table-empty" colspan="10">Summen erscheinen nach dem ersten Datensatz.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="completeness-section" aria-labelledby="completeness-title">
+        <div class="section-heading history-heading">
+          <div><p class="eyebrow">DATENLÜCKEN</p><h2 id="completeness-title">Datenvollständigkeit</h2></div>
+          <p class="history-count" id="completeness-summary"></p>
+        </div>
+        <div class="completeness-legend" aria-label="Legende Datenvollständigkeit">
+          <span><i class="completeness-swatch completeness-ok"></i>Vollständig</span>
+          <span><i class="completeness-swatch completeness-flagged"></i>Hinweis</span>
+          <span><i class="completeness-swatch completeness-missing"></i>Fehlt</span>
+          <span><i class="completeness-swatch completeness-skipped"></i>Außerhalb des Backfill-Fensters</span>
+        </div>
+        <div id="completeness-calendar" class="completeness-calendar" aria-live="polite"></div>
+        <p class="chart-hint">Ältere Lücken lassen sich mit einem größeren <code>BACKFILL_MAX_DAYS</code> und <code>--refresh-days</code> nachholen.</p>
+      </section>
+
+      <section class="run-history-section" aria-labelledby="run-history-title">
+        <div class="section-heading history-heading">
+          <div><p class="eyebrow">PIPELINE</p><h2 id="run-history-title">Letzte Läufe</h2></div>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th scope="col">Zeit</th><th scope="col">Dauer</th><th scope="col">Tage erfasst</th><th scope="col">Tage übersprungen</th><th scope="col">Ergebnis</th></tr></thead>
+            <tbody id="run-history-body"><tr><td class="table-empty" colspan="5">Laufhistorie ist im Server-Dashboard verfügbar.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="history-section" aria-labelledby="history-title">
+        <div class="section-heading history-heading">
+          <div><p class="eyebrow">TAGESWERTE</p><h2 id="history-title">Letzte Einträge</h2></div>
+          <p class="history-count" id="history-count">0 Tage</p>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th scope="col">Datum</th><th scope="col">Ist-Ertrag</th><th scope="col">Potentieller Ertrag</th><th scope="col">Sonne</th><th scope="col">Ist/Potenzial</th><th scope="col">Abregelung</th></tr></thead>
+            <tbody id="history-body">
+              <tr><td class="table-empty" colspan="6">Die Tageshistorie wird nach dem ersten Lauf hier angezeigt.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="page-notes">
+        <p>Das Potenzial ist ein Modellwert für ungestörten Betrieb: Abregelung (Einspeisebegrenzung, voller Akku) ist nicht enthalten, Verschattung nur, wenn sie in der Konfiguration aktiviert ist. Abweichungen zwischen Ist und Potenzial sind deshalb nicht automatisch Verschattung oder ein Defekt. Stunden mit „Abregelung wahrscheinlich“ sind eine Schätzung aus Akkustand und Netzeinspeisung. Die angezeigte Menge nutzt eine 30-Tage-Baseline; <code>lost_kwh_upper</code> bleibt die unkalibrierte Obergrenze.</p>
+        <p id="source-note"></p>
+      </div>
+
+      <footer class="page-footer">
+        <span>Ist-Werte: AlphaESS <span aria-hidden="true">·</span> Wetterdaten: <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Weather data by Open-Meteo.com</a> (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>) <span aria-hidden="true">·</span> Potenzial: PVWatts</span>
+        <span>Modellwerte sind Schätzungen, keine Messwerte.</span>
+      </footer>
+    </main>
+  <script>window.PV_DAILY_DATA = {"installed_kwp":8.6,"records":[{"date":"2026-09-15","actual_kwh":10.0,"potential_kwh":14.0,"sunshine_hours":4.0,"poa_kwh_m2":1.5,"config_hash":"model-0"},{"date":"2026-09-16","actual_kwh":11.37,"potential_kwh":14.91,"sunshine_hours":5.1,"poa_kwh_m2":1.7,"config_hash":"model-0"},{"date":"2026-09-17","actual_kwh":12.74,"potential_kwh":15.82,"sunshine_hours":6.2,"poa_kwh_m2":1.9,"config_hash":"model-0"},{"date":"2026-09-18","actual_kwh":14.11,"potential_kwh":14.0,"sunshine_hours":7.3,"poa_kwh_m2":2.1,"config_hash":"model-0"},{"date":"2026-09-19","actual_kwh":15.48,"potential_kwh":14.91,"sunshine_hours":4.0,"poa_kwh_m2":1.5,"config_hash":"model-0"},{"date":"2026-09-20","actual_kwh":10.0,"potential_kwh":15.82,"sunshine_hours":5.1,"poa_kwh_m2":1.7,"config_hash":"model-0","weather_source":"archive"},{"date":"2026-09-21","actual_kwh":11.37,"potential_kwh":14.0,"sunshine_hours":6.2,"poa_kwh_m2":1.9,"config_hash":"model-0","weather_source":"archive"},{"date":"2026-09-22","actual_kwh":12.74,"potential_kwh":14.91,"sunshine_hours":7.3,"poa_kwh_m2":2.1,"config_hash":"model-0","weather_source":"archive"},{"date":"2026-09-23","actual_kwh":14.11,"potential_kwh":15.82,"sunshine_hours":4.0,"poa_kwh_m2":1.5,"config_hash":"model-0","weather_source":"archive"},{"date":"2026-09-24","actual_kwh":15.48,"potential_kwh":14.0,"sunshine_hours":5.1,"poa_kwh_m2":1.7,"config_hash":"model-0","weather_source":"archive"},{"date":"2026-09-25","actual_kwh":10.0,"potential_kwh":14.91,"sunshine_hours":6.2,"poa_kwh_m2":1.9,"config_hash":"model-0","weather_source":"archive"},{"date":"2026-09-26","actual_kwh":11.37,"potential_kwh":15.82,"sunshine_hours":7.3,"poa_kwh_m2":2.1,"config_hash":"model-0","weather_source":"archive"},{"date":"2026-09-27","actual_kwh":12.74,"potential_kwh":14.0,"sunshine_hours":4.0,"poa_kwh_m2":1.5,"config_hash":"model-0","weather_source":"archive"},{"date":"2026-09-28","actual_kwh":14.11,"potential_kwh":14.91,"sunshine_hours":5.1,"poa_kwh_m2":1.7,"config_hash":"model-0","weather_source":"archive"},{"date":"2026-09-29","actual_kwh":15.48,"potential_kwh":15.82,"sunshine_hours":6.2,"poa_kwh_m2":1.9,"config_hash":"model-0","weather_source":"archive"},{"date":"2026-09-30","actual_kwh":10.0,"potential_kwh":14.0,"sunshine_hours":7.3,"poa_kwh_m2":2.1,"config_hash":"model-1","weather_source":"archive"},{"date":"2026-10-01","actual_kwh":11.37,"potential_kwh":14.91,"sunshine_hours":4.0,"poa_kwh_m2":1.5,"config_hash":"model-1","weather_source":"archive"},{"date":"2026-10-02","actual_kwh":12.74,"potential_kwh":15.82,"sunshine_hours":5.1,"poa_kwh_m2":1.7,"config_hash":"model-1","weather_source":"archive"},{"date":"2026-10-03","actual_kwh":14.11,"potential_kwh":14.0,"sunshine_hours":6.2,"poa_kwh_m2":1.9,"config_hash":"model-1","weather_source":"archive"},{"date":"2026-10-04","actual_kwh":15.48,"potential_kwh":14.91,"sunshine_hours":7.3,"poa_kwh_m2":2.1,"config_hash":"model-1","weather_source":"archive"},{"date":"2026-10-05","actual_kwh":10.0,"potential_kwh":15.82,"sunshine_hours":4.0,"poa_kwh_m2":1.5,"config_hash":"model-1","weather_source":"forecast"},{"date":"2026-10-06","actual_kwh":11.37,"potential_kwh":14.0,"sunshine_hours":5.1,"poa_kwh_m2":1.7,"config_hash":"model-1","weather_source":"forecast"},{"date":"2026-10-07","actual_kwh":12.74,"potential_kwh":14.91,"sunshine_hours":6.2,"poa_kwh_m2":1.9,"config_hash":"model-1","weather_source":"forecast"},{"date":"2026-10-08","actual_kwh":14.11,"potential_kwh":15.82,"sunshine_hours":7.3,"poa_kwh_m2":2.1,"config_hash":"model-1","weather_source":"forecast","hourly":[{"hour":"06:00","actual_kwh":0.0,"potential_kwh":0.0},{"hour":"07:00","actual_kwh":0.38,"potential_kwh":0.5},{"hour":"08:00","actual_kwh":0.76,"potential_kwh":1.0},{"hour":"09:00","actual_kwh":1.14,"potential_kwh":1.5},{"hour":"10:00","actual_kwh":1.52,"potential_kwh":2.0},{"hour":"11:00","actual_kwh":1.9,"potential_kwh":2.5},{"hour":"12:00","actual_kwh":2.28,"potential_kwh":3.0},{"hour":"13:00","actual_kwh":1.9,"potential_kwh":2.5},{"hour":"14:00","actual_kwh":1.52,"potential_kwh":2.0},{"hour":"15:00","actual_kwh":1.14,"potential_kwh":1.5},{"hour":"16:00","actual_kwh":0.76,"potential_kwh":1.0},{"hour":"17:00","actual_kwh":0.38,"potential_kwh":0.5},{"hour":"18:00","actual_kwh":0.0,"potential_kwh":0.0}],"signals_checked":true},{"date":"2026-10-09","actual_kwh":15.48,"potential_kwh":14.0,"sunshine_hours":4.0,"poa_kwh_m2":1.5,"config_hash":"model-1","weather_source":"forecast","hourly":[{"hour":"06:00","actual_kwh":0.0,"potential_kwh":0.0},{"hour":"07:00","actual_kwh":null,"potential_kwh":0.5},{"hour":"08:00","actual_kwh":0.78,"potential_kwh":1.0},{"hour":"09:00","actual_kwh":1.17,"potential_kwh":1.5},{"hour":"10:00","actual_kwh":1.56,"potential_kwh":2.0},{"hour":"11:00","actual_kwh":1.95,"potential_kwh":2.5},{"hour":"12:00","actual_kwh":2.34,"potential_kwh":3.0},{"hour":"13:00","actual_kwh":1.95,"potential_kwh":2.5},{"hour":"14:00","actual_kwh":1.56,"potential_kwh":2.0},{"hour":"15:00","actual_kwh":1.17,"potential_kwh":1.5},{"hour":"16:00","actual_kwh":0.78,"potential_kwh":1.0},{"hour":"17:00","actual_kwh":null,"potential_kwh":0.5},{"hour":"18:00","actual_kwh":0.0,"potential_kwh":0.0}],"signals_checked":true},{"date":"2026-10-10","actual_kwh":10.0,"potential_kwh":14.91,"sunshine_hours":5.1,"poa_kwh_m2":1.7,"config_hash":"model-1","weather_source":"forecast","hourly":[{"hour":"06:00","actual_kwh":0.0,"potential_kwh":0.0},{"hour":"07:00","actual_kwh":0.35,"potential_kwh":0.5},{"hour":"08:00","actual_kwh":0.7,"potential_kwh":1.0},{"hour":"09:00","actual_kwh":1.05,"potential_kwh":1.5},{"hour":"10:00","actual_kwh":1.4,"potential_kwh":2.0},{"hour":"11:00","actual_kwh":1.75,"potential_kwh":2.5},{"hour":"12:00","actual_kwh":2.1,"potential_kwh":3.0},{"hour":"13:00","actual_kwh":1.75,"potential_kwh":2.5},{"hour":"14:00","actual_kwh":1.4,"potential_kwh":2.0},{"hour":"15:00","actual_kwh":1.05,"potential_kwh":1.5},{"hour":"16:00","actual_kwh":0.7,"potential_kwh":1.0},{"hour":"17:00","actual_kwh":0.35,"potential_kwh":0.5},{"hour":"18:00","actual_kwh":0.0,"potential_kwh":0.0}],"signals_checked":true},{"date":"2026-10-11","actual_kwh":11.37,"potential_kwh":15.82,"sunshine_hours":6.2,"poa_kwh_m2":1.9,"config_hash":"model-1","weather_source":"forecast","hourly":[{"hour":"06:00","actual_kwh":0.0,"potential_kwh":0.0},{"hour":"07:00","actual_kwh":null,"potential_kwh":0.5},{"hour":"08:00","actual_kwh":0.72,"potential_kwh":1.0},{"hour":"09:00","actual_kwh":1.08,"potential_kwh":1.5},{"hour":"10:00","actual_kwh":1.44,"potential_kwh":2.0},{"hour":"11:00","actual_kwh":1.8,"potential_kwh":2.5},{"hour":"12:00","actual_kwh":2.16,"potential_kwh":3.0},{"hour":"13:00","actual_kwh":1.8,"potential_kwh":2.5},{"hour":"14:00","actual_kwh":1.44,"potential_kwh":2.0},{"hour":"15:00","actual_kwh":1.08,"potential_kwh":1.5},{"hour":"16:00","actual_kwh":0.72,"potential_kwh":1.0},{"hour":"17:00","actual_kwh":null,"potential_kwh":0.5},{"hour":"18:00","actual_kwh":0.0,"potential_kwh":0.0}],"signals_checked":true},{"date":"2026-10-12","actual_kwh":12.74,"potential_kwh":14.0,"sunshine_hours":7.3,"poa_kwh_m2":2.1,"config_hash":"model-1","weather_source":"forecast","hourly":[{"hour":"06:00","actual_kwh":0.0,"potential_kwh":0.0},{"hour":"07:00","actual_kwh":0.37,"potential_kwh":0.5},{"hour":"08:00","actual_kwh":0.74,"potential_kwh":1.0},{"hour":"09:00","actual_kwh":1.11,"potential_kwh":1.5},{"hour":"10:00","actual_kwh":1.48,"potential_kwh":2.0},{"hour":"11:00","actual_kwh":1.85,"potential_kwh":2.5},{"hour":"12:00","actual_kwh":2.22,"potential_kwh":3.0},{"hour":"13:00","actual_kwh":1.85,"potential_kwh":2.5},{"hour":"14:00","actual_kwh":1.48,"potential_kwh":2.0},{"hour":"15:00","actual_kwh":1.11,"potential_kwh":1.5},{"hour":"16:00","actual_kwh":0.74,"potential_kwh":1.0},{"hour":"17:00","actual_kwh":0.37,"potential_kwh":0.5},{"hour":"18:00","actual_kwh":0.0,"potential_kwh":0.0}],"signals_checked":true},{"date":"2026-10-13","actual_kwh":14.11,"potential_kwh":14.91,"sunshine_hours":4.0,"poa_kwh_m2":1.5,"config_hash":"model-1","weather_source":"forecast","hourly":[{"hour":"06:00","actual_kwh":0.0,"potential_kwh":0.0},{"hour":"07:00","actual_kwh":null,"potential_kwh":0.5},{"hour":"08:00","actual_kwh":0.76,"potential_kwh":1.0},{"hour":"09:00","actual_kwh":1.14,"potential_kwh":1.5},{"hour":"10:00","actual_kwh":1.52,"potential_kwh":2.0},{"hour":"11:00","actual_kwh":1.9,"potential_kwh":2.5},{"hour":"12:00","actual_kwh":2.28,"potential_kwh":3.0},{"hour":"13:00","actual_kwh":1.9,"potential_kwh":2.5},{"hour":"14:00","actual_kwh":1.52,"potential_kwh":2.0},{"hour":"15:00","actual_kwh":1.14,"potential_kwh":1.5},{"hour":"16:00","actual_kwh":0.76,"potential_kwh":1.0},{"hour":"17:00","actual_kwh":null,"potential_kwh":0.5},{"hour":"18:00","actual_kwh":0.0,"potential_kwh":0.0}],"signals_checked":true},{"date":"2026-10-14","actual_kwh":1.0,"potential_kwh":15.82,"sunshine_hours":5.1,"poa_kwh_m2":1.7,"config_hash":"model-1","quality":{"n_samples":180,"coverage":0.7,"integral_kwh":8,"integral_ratio":0.8,"flags":["low_coverage"]},"weather_source":"forecast","hourly":[{"hour":"06:00","actual_kwh":0.0,"potential_kwh":0.0},{"hour":"07:00","actual_kwh":0.39,"potential_kwh":0.5},{"hour":"08:00","actual_kwh":0.78,"potential_kwh":1.0},{"hour":"09:00","actual_kwh":1.17,"potential_kwh":1.5},{"hour":"10:00","actual_kwh":1.56,"potential_kwh":2.0},{"hour":"11:00","actual_kwh":1.95,"potential_kwh":2.5},{"hour":"12:00","actual_kwh":2.34,"potential_kwh":3.0},{"hour":"13:00","actual_kwh":1.95,"potential_kwh":2.5},{"hour":"14:00","actual_kwh":1.56,"potential_kwh":2.0},{"hour":"15:00","actual_kwh":1.17,"potential_kwh":1.5},{"hour":"16:00","actual_kwh":0.78,"potential_kwh":1.0},{"hour":"17:00","actual_kwh":0.39,"potential_kwh":0.5},{"hour":"18:00","actual_kwh":0.0,"potential_kwh":0.0}],"signals_checked":true}]};</script>
+<script>
+"use strict";
+
+const numberFormat = new Intl.NumberFormat("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const dateFormat = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+const shortDateFormat = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "short", timeZone: "UTC" });
+
+const MIN_DAYS_FOR_HOUR_PROFILE = 5;
+const MIN_POTENTIAL_FOR_HOUR_PROFILE = 0.05; // kWh je Stunde über alle Tage; darunter ist das Verhältnis nur Rauschen
+const GREEN = "#197459";
+const SUN = "#e5ad38";
+const ORANGE = "#dc7b52";
+const POTENTIAL_MODEL_PALETTE = [
+  "#dc7b52",
+  "#2f7aa6",
+  "#7c9d3a",
+  "#8a57a2",
+  "#d66a4d",
+  "#4d8a7a",
+  "#c77a13",
+  "#6a5cc7",
+  "#a24f63",
+  "#3d7d4b",
+];
+const CURTAILED_BAND = "rgba(220, 123, 82, 0.2)";
+const CURTAILMENT_REASONS = { limit: "Einspeiselimit erreicht", battery: "Akku voll" };
+
+let records = Array.isArray(window.PV_DAILY_DATA?.records) ? window.PV_DAILY_DATA.records : [];
+let activeRange = 30;
+
+const elements = {
+  connection: document.querySelector("#connection-state"),
+  connectionLabel: document.querySelector("#connection-label"),
+  publicStatus: document.querySelector("#public-status"),
+  latestDate: document.querySelector("#latest-date"),
+  actualValue: document.querySelector("#actual-value"),
+  actualCaption: document.querySelector("#actual-caption"),
+  potentialValue: document.querySelector("#potential-value"),
+  potentialCaption: document.querySelector("#potential-caption"),
+  sunshineValue: document.querySelector("#sunshine-value"),
+  specificYieldValue: document.querySelector("#specific-yield-value"),
+  performanceRatioValue: document.querySelector("#performance-ratio-value"),
+  poaValue: document.querySelector("#poa-value"),
+  modelWarning: document.querySelector("#model-provenance-warning"),
+  energyCanvas: document.querySelector("#energy-chart"),
+  sunshineCanvas: document.querySelector("#sunshine-chart"),
+  ratioCanvas: document.querySelector("#ratio-chart"),
+  hourlyCanvas: document.querySelector("#hourly-chart"),
+  profileCanvas: document.querySelector("#profile-chart"),
+  hourlyEmpty: document.querySelector("#hourly-empty"),
+  hourlySelect: document.querySelector("#hourly-date"),
+  profileEmpty: document.querySelector("#profile-empty"),
+  profileEmptyText: document.querySelector("#profile-empty-text"),
+  profileNote: document.querySelector("#profile-note"),
+  analysisScatter: document.querySelector("#analysis-scatter"),
+  analysisScatterEmpty: document.querySelector("#analysis-scatter-empty"),
+  analysisResiduals: document.querySelector("#analysis-residuals"),
+  analysisResidualsEmpty: document.querySelector("#analysis-residuals-empty"),
+  analysisHistogram: document.querySelector("#analysis-histogram"),
+  analysisHistogramEmpty: document.querySelector("#analysis-histogram-empty"),
+  analysisTrend: document.querySelector("#analysis-trend"),
+  analysisTrendEmpty: document.querySelector("#analysis-trend-empty"),
+  analysisHeatmap: document.querySelector("#analysis-heatmap"),
+  analysisHeatmapEmpty: document.querySelector("#analysis-heatmap-empty"),
+  analysisCurtailment: document.querySelector("#analysis-curtailment"),
+  analysisCurtailmentEmpty: document.querySelector("#analysis-curtailment-empty"),
+  analysisSoc: document.querySelector("#analysis-soc"),
+  analysisSocEmpty: document.querySelector("#analysis-soc-empty"),
+  analysisMetrics: document.querySelector("#analysis-metrics"),
+  analysisReferenceEmpty: document.querySelector("#analysis-reference-empty"),
+  analysisReferenceEmptyText: document.querySelector("#analysis-reference-empty-text"),
+  analysisReferenceSummary: document.querySelector("#analysis-reference-summary"),
+  regressionNote: document.querySelector("#analysis-regression-note"),
+  annualNote: document.querySelector("#analysis-annual-note"),
+  anomalies: document.querySelector("#analysis-anomalies"),
+  hourlyCurtailmentNote: document.querySelector("#hourly-curtailment-note"),
+  hourlyCurtailedLegend: document.querySelector("#hourly-curtailed-legend"),
+  energyEmpty: document.querySelector("#energy-empty"),
+  sunshineEmpty: document.querySelector("#sunshine-empty"),
+  ratioEmpty: document.querySelector("#ratio-empty"),
+  historyBody: document.querySelector("#history-body"),
+  historyCount: document.querySelector("#history-count"),
+  summaryBody: document.querySelector("#summary-body"),
+  completenessSection: document.querySelector(".completeness-section"),
+  completenessCalendar: document.querySelector("#completeness-calendar"),
+  completenessSummary: document.querySelector("#completeness-summary"),
+  runHistoryBody: document.querySelector("#run-history-body"),
+  sourceNote: document.querySelector("#source-note"),
+  exportButton: document.querySelector("#export-button"),
+};
+
+/* ------------------------------------------------------------------ Hilfsfunktionen */
+
+function formatNumber(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  return Number.isFinite(Number(value)) ? numberFormat.format(Number(value)) : "-";
+}
+
+function formatDate(value) {
+  return dateFormat.format(new Date(`${value}T12:00:00Z`));
+}
+
+function formatShortDate(value) {
+  return shortDateFormat.format(new Date(`${value}T12:00:00Z`));
+}
+
+function addDays(isoDate, days) {
+  const date = new Date(`${isoDate}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function ratioPercent(actual, potential) {
+  if (actual === null || actual === undefined || actual === "" || potential === null || potential === undefined || potential === "") return null;
+  const a = Number(actual);
+  const p = Number(potential);
+  return Number.isFinite(a) && Number.isFinite(p) && p > 0 ? (a / p) * 100 : null;
+}
+
+function sumOf(items, key) {
+  return items.reduce((total, item) => total + (Number(item[key]) || 0), 0);
+}
+
+function visibleRecords() {
+  return activeRange === "all" ? records : records.slice(-activeRange);
+}
+
+/* ------------------------------------------------------------ Tooltips (Maus, Touch, Tastatur) */
+
+function tooltipFor(canvas) {
+  return document.getElementById(canvas.dataset.tooltipId);
+}
+
+function hideTooltip(canvas) {
+  const tooltip = tooltipFor(canvas);
+  if (tooltip) tooltip.hidden = true;
+  if (canvas.pvChart) canvas.pvChart.activeIndex = null;
+}
+
+function showTooltip(canvas, index, pointerY) {
+  const chart = canvas.pvChart;
+  const tooltip = tooltipFor(canvas);
+  if (!chart || !tooltip || !chart.data.length) return;
+
+  const bounds = canvas.getBoundingClientRect();
+  const slotWidth = (bounds.width - chart.left - chart.right) / chart.data.length;
+  const safeIndex = Math.max(0, Math.min(chart.data.length - 1, index));
+  const item = chart.data[safeIndex];
+  chart.activeIndex = safeIndex;
+
+  const lines = chart.tooltipLines
+    ? chart.tooltipLines(item)
+    : [
+        chart.title(item),
+        `${chart.label}: ${formatNumber(item[chart.valueKey])} ${chart.unit}`,
+        ...(chart.comparisonKey ? [`${chart.comparisonLabel}: ${formatNumber(item[chart.comparisonKey])} ${chart.unit}`] : []),
+        ...(chart.extraLine && chart.extraLine(item) ? [chart.extraLine(item)] : []),
+      ];
+  tooltip.textContent = lines.join("\n");
+  tooltip.hidden = false;
+
+  const center = chart.left + slotWidth * (safeIndex + 0.5);
+  const halfTooltip = tooltip.offsetWidth / 2;
+  const left = Math.max(halfTooltip + 6, Math.min(bounds.width - halfTooltip - 6, center));
+  const y = Math.max(tooltip.offsetHeight + 8, pointerY ?? bounds.height * 0.45);
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${y}px`;
+}
+
+function bindChartInteraction(canvas) {
+  if (canvas.dataset.interactionBound) return;
+  canvas.dataset.interactionBound = "true";
+
+  canvas.addEventListener("pointermove", (event) => {
+    const chart = canvas.pvChart;
+    if (!chart?.data.length) return hideTooltip(canvas);
+    const bounds = canvas.getBoundingClientRect();
+    const x = event.clientX - bounds.left;
+    if (x < chart.left || x > bounds.width - chart.right) return hideTooltip(canvas);
+    const index = chart.pickIndex
+      ? chart.pickIndex(x, event.clientY - bounds.top, bounds)
+      : Math.floor((x - chart.left) / ((bounds.width - chart.left - chart.right) / chart.data.length));
+    if (index === null || index === undefined || index < 0) return hideTooltip(canvas);
+    showTooltip(canvas, index, event.clientY - bounds.top - 10);
+  });
+  canvas.addEventListener("pointerleave", () => hideTooltip(canvas));
+  canvas.addEventListener("blur", () => hideTooltip(canvas));
+  canvas.addEventListener("focus", () => {
+    const chart = canvas.pvChart;
+    if (!chart?.data.length) return;
+    let keyboardFocus = true;
+    try {
+      keyboardFocus = canvas.matches(":focus-visible");
+    } catch (error) {
+      keyboardFocus = true;
+    }
+    if (keyboardFocus) showTooltip(canvas, chart.data.length - 1);
+  });
+  canvas.addEventListener("keydown", (event) => {
+    const chart = canvas.pvChart;
+    if (!chart?.data.length) return;
+    const last = chart.data.length - 1;
+    let index = chart.activeIndex ?? last; // erster Tastendruck: zuerst den letzten (jüngsten) Wert zeigen
+    if (event.key === "ArrowLeft") index = chart.activeIndex === null ? last : index - 1;
+    else if (event.key === "ArrowRight") index = chart.activeIndex === null ? last : index + 1;
+    else if (event.key === "Home") index = 0;
+    else if (event.key === "End") index = last;
+    else if (event.key === "Escape") return hideTooltip(canvas);
+    else return;
+    event.preventDefault();
+    showTooltip(canvas, index);
+  });
+}
+
+/* ---------------------------------------------------------------------------- Diagramm */
+
+function drawChart(canvas, data, valueKey, color, comparisonKey = null, options = {}) {
+  if (!canvas) return;
+  const bounds = canvas.getBoundingClientRect();
+  if (!bounds.width || !bounds.height || !data.length) return;
+
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.round(bounds.width * ratio);
+  canvas.height = Math.round(bounds.height * ratio);
+  const context = canvas.getContext("2d");
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, bounds.width, bounds.height);
+
+  const left = 42;
+  const right = 10;
+  const top = 10;
+  const bottom = 28;
+  const plotWidth = bounds.width - left - right;
+  const plotHeight = bounds.height - top - bottom;
+
+  hideTooltip(canvas); // ein neu gezeichnetes Diagramm hat keinen gültigen Tooltip-Bezug mehr
+  canvas.pvChart = {
+    data,
+    valueKey,
+    comparisonKey,
+    label: options.label || (valueKey === "sunshine_hours" ? "Sonne" : "Ist-Ertrag"),
+    unit: options.unit || (valueKey === "sunshine_hours" ? "h" : "kWh"),
+    comparisonLabel: options.comparisonLabel || "Potentieller Ertrag",
+    title: options.title || ((item) => formatDate(item.date)),
+    extraLine: options.extraLine || null,
+    left,
+    right,
+    activeIndex: null,
+  };
+  bindChartInteraction(canvas);
+
+  const values = data.flatMap((item) => [Number(item[valueKey]), comparisonKey ? Number(item[comparisonKey]) : 0]);
+  const referenceLine = options.referenceLine ?? null;
+  const maximum = Math.max(options.minimumMaximum ?? 1, referenceLine ?? 0, ...values.filter(Number.isFinite)) * 1.12;
+  const slotWidth = plotWidth / data.length;
+  const barWidth = Math.max(2, Math.min(18, slotWidth * (comparisonKey ? 0.5 : 0.62)));
+  const yFor = (value) => top + plotHeight - (Math.max(0, Number(value)) / maximum) * plotHeight;
+
+  context.font = "10px Trebuchet MS, sans-serif";
+  context.textAlign = "right";
+  context.textBaseline = "middle";
+  for (let tick = 0; tick <= 4; tick += 1) {
+    const y = top + (plotHeight * tick) / 4;
+    const value = maximum * (1 - tick / 4);
+    context.strokeStyle = "#e8eeea";
+    context.beginPath();
+    context.moveTo(left, y);
+    context.lineTo(bounds.width - right, y);
+    context.stroke();
+    context.fillStyle = "#687872";
+    context.fillText(formatNumber(value), left - 7, y);
+  }
+
+  if (options.highlight) {
+    data.forEach((item, index) => {
+      const band = options.highlight(item);
+      if (!band) return;
+      context.fillStyle = band;
+      context.fillRect(left + slotWidth * index, top, slotWidth, plotHeight);
+    });
+  }
+
+  data.forEach((item, index) => {
+    const raw = item[valueKey];
+    if (raw === null || raw === undefined || !Number.isFinite(Number(raw))) return;
+    const center = left + slotWidth * (index + 0.5);
+    const y = yFor(raw);
+    context.fillStyle = color;
+    context.fillRect(center - barWidth / 2, y, barWidth, top + plotHeight - y);
+  });
+
+  if (referenceLine !== null) {
+    context.save();
+    context.strokeStyle = ORANGE;
+    context.lineWidth = 1.5;
+    context.setLineDash([5, 4]);
+    context.beginPath();
+    context.moveTo(left, yFor(referenceLine));
+    context.lineTo(bounds.width - right, yFor(referenceLine));
+    context.stroke();
+    context.restore();
+  }
+
+  if (comparisonKey) {
+    const grouped = new Map();
+    data.forEach((item, index) => {
+      const raw = item[comparisonKey];
+      if (raw === null || raw === undefined || !Number.isFinite(Number(raw))) return;
+      const hash = item.config_hash || "__default__";
+      const points = grouped.get(hash) || [];
+      points.push({
+        x: left + slotWidth * (index + 0.5),
+        y: yFor(raw),
+      });
+      grouped.set(hash, points);
+    });
+    context.lineWidth = 2;
+    grouped.forEach((points, hash) => {
+      context.beginPath();
+      points.forEach(({ x, y }, index) => {
+        if (index === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.strokeStyle = modelColorForHash(hash, ORANGE);
+      context.stroke();
+    });
+  }
+
+  const xLabel = options.xLabel || ((item) => formatShortDate(item.date));
+  const labelStride = Math.max(1, Math.ceil(data.length / 6));
+  context.fillStyle = "#687872";
+  context.textAlign = "center";
+  context.textBaseline = "top";
+  data.forEach((item, index) => {
+    if (index % labelStride !== 0 && index !== data.length - 1) return;
+    context.fillText(xLabel(item), left + slotWidth * (index + 0.5), top + plotHeight + 8);
+  });
+}
+
+/* ------------------------------------------------------------------------------ Anzeige */
+
+function setEmptyState(hasData) {
+  elements.energyEmpty.hidden = hasData;
+  elements.sunshineEmpty.hidden = hasData;
+  elements.ratioEmpty.hidden = hasData;
+  elements.energyCanvas.hidden = !hasData;
+  elements.sunshineCanvas.hidden = !hasData;
+  elements.ratioCanvas.hidden = !hasData;
+}
+
+function renderMetrics() {
+  const latest = records.at(-1);
+  const installed = Number(window.PV_DAILY_DATA?.installed_kwp);
+  if (!latest) {
+    elements.actualValue.textContent = "-";
+    elements.potentialValue.textContent = "-";
+    elements.sunshineValue.textContent = "-";
+    elements.latestDate.textContent = "Noch keine Daten";
+    elements.actualCaption.textContent = "AlphaESS Tageswert";
+    elements.potentialCaption.textContent = "Wetterbasiertes PV-Modell";
+    elements.specificYieldValue.textContent = "-";
+    elements.performanceRatioValue.textContent = "-";
+    elements.poaValue.textContent = "-";
+    return;
+  }
+  const difference = Number(latest.potential_kwh) - Number(latest.actual_kwh);
+  const achieved = ratioPercent(latest.actual_kwh, latest.potential_kwh);
+  elements.actualValue.textContent = formatNumber(latest.actual_kwh);
+  elements.potentialValue.textContent = formatNumber(latest.potential_kwh);
+  elements.sunshineValue.textContent = formatNumber(latest.sunshine_hours);
+  const specificYield = Number.isFinite(installed) && installed > 0 ? Number(latest.actual_kwh) / installed : null;
+  const poa = Number(latest.poa_kwh_m2);
+  const performanceRatio = Number.isFinite(specificYield) && Number.isFinite(poa) && poa > 0
+    ? (specificYield / poa) * 100
+    : null;
+  elements.specificYieldValue.textContent = formatNumber(specificYield);
+  elements.performanceRatioValue.textContent = formatNumber(performanceRatio);
+  elements.poaValue.textContent = formatNumber(latest.poa_kwh_m2);
+  elements.latestDate.textContent = formatDate(latest.date);
+  elements.actualCaption.textContent = achieved === null ? "AlphaESS Tageswert" : `${formatNumber(achieved)} % des Potenzials`;
+  elements.potentialCaption.textContent = `Abstand zum Ist: ${formatNumber(difference)} kWh`;
+}
+
+function appendRow(body, values) {
+  const row = document.createElement("tr");
+  values.forEach((value) => {
+    const cell = document.createElement("td");
+    cell.textContent = value;
+    row.append(cell);
+  });
+  body.append(row);
+  return row;
+}
+
+function appendEmptyRow(body, columns, text) {
+  const row = document.createElement("tr");
+  const cell = document.createElement("td");
+  cell.colSpan = columns;
+  cell.className = "table-empty";
+  cell.textContent = text;
+  row.append(cell);
+  body.append(row);
+}
+
+function curtailmentText(curtailment) {
+  if (!curtailment) return "-";
+  if (!curtailment.hours) return "keine";
+  return `${curtailment.hours} h · ${formatNumber(curtailment.lost_kwh)} kWh`;
+}
+
+function combineCurtailment(items) {
+  const checked = items.filter((item) => item.curtailment);
+  if (!checked.length) return null;
+  return {
+    hours: checked.reduce((total, item) => total + item.curtailment.hours, 0),
+    lost_kwh: checked.reduce((total, item) => total + item.curtailment.lost_kwh, 0),
+    lost_kwh_upper: checked.every((item) => Number.isFinite(item.curtailment.lost_kwh_upper))
+      ? checked.reduce((total, item) => total + item.curtailment.lost_kwh_upper, 0)
+      : null,
+  };
+}
+
+function hourlyTooltipExtra(item) {
+  const lines = [];
+  if (item.curtailed) lines.push(`Abregelung wahrscheinlich: ${CURTAILMENT_REASONS[item.curtailed] || "erkannt"}`);
+  const signals = [];
+  if (Number.isFinite(item.soc_pct)) signals.push(`Akku ${formatNumber(item.soc_pct)} %`);
+  if (Number.isFinite(item.feed_in_signed_w)) {
+    const power = Math.round(Math.abs(item.feed_in_signed_w));
+    const direction = item.feed_in_signed_w > 0 ? "Einspeisung" : item.feed_in_signed_w < 0 ? "Netzbezug" : "Netzleistung";
+    signals.push(`${direction} ${power} W`);
+  } else if (Number.isFinite(item.feed_in_w)) {
+    signals.push(`Netzleistung (Betrag) ${Math.round(item.feed_in_w)} W`);
+  }
+  if (Number.isFinite(item.feed_in_max_w) && item.feed_in_max_w > 0) {
+    signals.push(`Spitze ${Math.round(item.feed_in_max_w)} W`);
+  }
+  if (signals.length) lines.push(signals.join(" · "));
+  return lines.join("\n");
+}
+
+function percentText(value) {
+  return value === null ? "-" : `${formatNumber(value)} %`;
+}
+
+function modelColorForHash(hash, fallback = ORANGE) {
+  if (!hash) return fallback;
+  let total = 0;
+  for (let index = 0; index < hash.length; index += 1) {
+    total = (total * 31 + hash.charCodeAt(index)) >>> 0;
+  }
+  return POTENTIAL_MODEL_PALETTE[total % POTENTIAL_MODEL_PALETTE.length] || fallback;
+}
+
+function setPotentialLegendColors() {
+  const palette = [...new Set(visibleRecords().map((item) => item.config_hash).filter(Boolean))]
+    .map((hash) => ({ hash, color: modelColorForHash(hash) }))
+    .slice(0, 5);
+  document.querySelectorAll(".potential-swatch").forEach((node, index) => {
+    const color = palette[index]?.color || ORANGE;
+    node.style.background = color;
+    node.style.borderColor = color;
+    node.style.setProperty("background-color", color);
+  });
+  const note = palette.length > 1
+    ? `Potenzialfarben markieren verschiedene Modellkonfigurationen: ${palette.map(({ hash, color }) => `${hash.slice(0, 8)} (${color})`).join(", ")}.`
+    : "Das Potenzial wurde mit einer konsistenten Modellkonfiguration berechnet. Gleiche Farben bedeuten gleiche Berechnungsversion.";
+  const target = document.querySelector("#potential-model-note");
+  if (target) target.textContent = note;
+}
+
+function renderHistory(data) {
+  elements.historyBody.replaceChildren();
+  elements.historyCount.textContent = `${records.length} ${records.length === 1 ? "Tag" : "Tage"}`;
+  if (!data.length) {
+    appendEmptyRow(elements.historyBody, 6, "Die Tageshistorie wird nach dem ersten Lauf hier angezeigt.");
+    return;
+  }
+  data
+    .slice()
+    .reverse()
+    .slice(0, 14)
+    .forEach((item) => {
+      const row = appendRow(elements.historyBody, [
+        formatDate(item.date),
+        `${formatNumber(item.actual_kwh)} kWh`,
+        `${formatNumber(item.potential_kwh)} kWh`,
+        `${formatNumber(item.sunshine_hours)} h`,
+        percentText(ratioPercent(item.actual_kwh, item.potential_kwh)),
+        curtailmentText(item.curtailment),
+      ]);
+      const flags = item.quality?.flags;
+      if (Array.isArray(flags) && flags.length) {
+        const dateCell = row.firstElementChild;
+        const descriptions = {
+          low_coverage: "Geringe Abdeckung der Leistungsproben",
+          epv_mismatch: "Stundenintegral weicht vom AlphaESS-Tageswert ab",
+          hourly_missing: "Kein Stundenprofil vorhanden",
+        };
+        dateCell.textContent = `! ${formatDate(item.date)}`;
+        dateCell.title = flags.map((flag) => descriptions[flag] || flag).join("; ");
+        dateCell.setAttribute("aria-label", `${formatDate(item.date)}. Qualitäts-Hinweis: ${dateCell.title}`);
+      }
+    });
+}
+
+function summaryRows() {
+  const latest = records.at(-1);
+  if (!latest) return [];
+  const month = latest.date.slice(0, 7);
+  const weekStart = addDays(latest.date, -6);
+  return [
+    { label: "Letzte 7 Tage", items: records.filter((item) => item.date >= weekStart) },
+    { label: `Laufender Monat (${latest.date.slice(5, 7)}/${latest.date.slice(0, 4)})`, items: records.filter((item) => item.date.startsWith(month)) },
+    { label: `Laufendes Jahr (${latest.date.slice(0, 4)})`, items: records.filter((item) => item.date.startsWith(latest.date.slice(0, 4))) },
+    { label: "Gesamter Zeitraum", items: records },
+  ];
+}
+
+function renderSummary() {
+  elements.summaryBody.replaceChildren();
+  const rows = summaryRows();
+  if (!rows.length) {
+    appendEmptyRow(elements.summaryBody, 10, "Summen erscheinen nach dem ersten Datensatz.");
+    return;
+  }
+  rows.forEach(({ label, items }) => {
+    const actual = sumOf(items, "actual_kwh");
+    const potential = sumOf(items, "potential_kwh");
+    const installed = Number(window.PV_DAILY_DATA?.installed_kwp);
+    const poa = items.reduce((total, item) => total + (Number(item.poa_kwh_m2) || 0), 0);
+    const specific = Number.isFinite(installed) && installed > 0 ? actual / installed : null;
+    const pr = specific !== null && poa > 0 ? (specific / poa) * 100 : null;
+    appendRow(elements.summaryBody, [
+      label,
+      String(items.length),
+      `${formatNumber(actual)} kWh`,
+      `${formatNumber(potential)} kWh`,
+      percentText(ratioPercent(actual, potential)),
+      `${formatNumber(sumOf(items, "sunshine_hours"))} h`,
+      formatNumber(specific),
+      formatNumber(poa),
+      percentText(pr),
+      curtailmentText(combineCurtailment(items)),
+    ]);
+  });
+}
+
+function renderSourceNote() {
+  const labels = { archive: "Open-Meteo-Archiv (ERA5-Reanalyse)", forecast: "Open-Meteo-Forecast (Modellanalyse)" };
+  const counts = {};
+  records.forEach((item) => {
+    const key = labels[item.weather_source] ? item.weather_source : "unknown";
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  const parts = Object.entries(counts).map(([key, count]) => `${labels[key] || "Quelle nicht vermerkt (ältere Datensätze)"}: ${count} ${count === 1 ? "Tag" : "Tage"}`);
+  elements.sourceNote.textContent = parts.length ? `Wetterquelle – ${parts.join("; ")}.` : "";
+}
+
+function renderMetricsSummary(data) {
+  const pairs = data
+    .filter((item) => item.actual_kwh !== null && item.actual_kwh !== undefined && item.potential_kwh !== null && item.potential_kwh !== undefined)
+    .map((item) => [Number(item.actual_kwh), Number(item.potential_kwh)])
+    .filter(([actual, potential]) => Number.isFinite(actual) && Number.isFinite(potential));
+  if (!pairs.length) {
+    elements.analysisMetrics.textContent = "MBE, RMSE, rMBD und MAPE erscheinen mit gültigen Ist- und Potenzialwerten.";
+    return;
+  }
+  const errors = pairs.map(([actual, potential]) => potential - actual);
+  const mean = (values) => values.reduce((total, value) => total + value, 0) / values.length;
+  const mbe = mean(errors);
+  const meanActual = mean(pairs.map(([actual]) => actual));
+  const rmse = Math.sqrt(mean(errors.map((error) => error * error)));
+  const rmbd = meanActual ? (mbe / meanActual) * 100 : null;
+  const mapeValues = pairs
+    .filter(([actual]) => actual !== 0)
+    .map(([actual, potential]) => (Math.abs(potential - actual) / Math.abs(actual)) * 100);
+  const mape = mapeValues.length ? mean(mapeValues) : null;
+  elements.analysisMetrics.textContent =
+    `${pairs.length} Tage im ausgewählten Zeitraum · MBE ${formatNumber(mbe)} kWh/Tag · ` +
+    `RMSE ${formatNumber(rmse)} kWh/Tag · rMBD ${percentText(rmbd)} · MAPE ${percentText(mape)}`;
+}
+
+function renderReferenceSummary() {
+  const reference = window.PV_DAILY_DATA?.tmy_reference;
+  const monthlyData = reference?.daily_kwh_by_month_day;
+  if (!monthlyData || !Object.keys(monthlyData).length) {
+    elements.analysisReferenceEmpty.hidden = false;
+    elements.analysisReferenceSummary.hidden = true;
+    elements.analysisReferenceEmptyText.textContent = window.PV_DAILY_DATA?.tmy_reference_stale
+      ? "Die PVGIS-TMY-Referenz wurde mit einer anderen Modellkonfiguration berechnet. Bitte mit python analyze_pv.py aktualisieren."
+      : "Keine PVGIS-TMY-Referenz vorhanden. Mit python analyze_pv.py lässt sie sich berechnen.";
+    return;
+  }
+  elements.analysisReferenceEmpty.hidden = true;
+  elements.analysisReferenceSummary.hidden = false;
+  elements.analysisReferenceSummary.replaceChildren();
+  const latest = records.at(-1);
+  if (!latest) return;
+  const month = latest.date.slice(0, 7);
+  const year = latest.date.slice(0, 4);
+  const periods = [
+    { label: `Monat bis ${formatDate(latest.date)}`, items: records.filter((item) => item.date.startsWith(month)) },
+    { label: `Jahr bis ${formatDate(latest.date)}`, items: records.filter((item) => item.date.startsWith(year)) },
+  ];
+  periods.forEach(({ label, items }) => {
+    const actual = sumOf(items, "actual_kwh");
+    const expected = items.reduce((total, item) => {
+      const monthDay = item.date.slice(5);
+      return total + (Number(monthlyData[monthDay] ?? (monthDay === "02-29" ? monthlyData["02-28"] : 0)) || 0);
+    }, 0);
+    const line = document.createElement("p");
+    line.textContent = `${label}: Ist ${formatNumber(actual)} kWh · PVGIS-TMY-Soll ${formatNumber(expected)} kWh`;
+    elements.analysisReferenceSummary.append(line);
+  });
+}
+
+function renderModelWarning() {
+  const hashes = [...new Set(visibleRecords().map((item) => item.config_hash).filter(Boolean))];
+  elements.modelWarning.hidden = hashes.length < 2;
+  elements.modelWarning.textContent = hashes.length < 2
+    ? ""
+    : "Im ausgewählten Zeitraum wurden Potenziale mit unterschiedlichen Modellkonfigurationen berechnet. Die Potenzialfarbe im Diagramm markiert die jeweilige Modellvariante; für einen konsistenten Vergleich kannst du die Werte mit --recompute neu berechnen.";
+  setPotentialLegendColors();
+}
+
+function renderCompleteness() {
+  const data = window.PV_DAILY_DATA?.completeness;
+  if (!Array.isArray(data) || !data.length) {
+    elements.completenessSection.hidden = true;
+    return;
+  }
+  elements.completenessSection.hidden = false;
+  elements.completenessCalendar.replaceChildren();
+  const summary = window.PV_DAILY_DATA.completeness_summary || {};
+  elements.completenessSummary.textContent =
+    `${summary.missing || 0} Lücken gesamt · ${summary.outside_backfill || 0} außerhalb des Backfill-Fensters`;
+  const months = new Map();
+  data.forEach((item) => {
+    const key = item.date.slice(0, 7);
+    if (!months.has(key)) months.set(key, []);
+    months.get(key).push(item);
+  });
+  const monthFormat = new Intl.DateTimeFormat("de-DE", { month: "long", year: "numeric", timeZone: "UTC" });
+  for (const [month, days] of months) {
+    const [year, monthNumber] = month.split("-").map(Number);
+    const panel = document.createElement("article");
+    panel.className = "completeness-month";
+    const heading = document.createElement("h3");
+    heading.textContent = monthFormat.format(new Date(Date.UTC(year, monthNumber - 1, 1, 12)));
+    panel.append(heading);
+    const grid = document.createElement("div");
+    grid.className = "completeness-days";
+    grid.setAttribute("role", "list");
+    const firstWeekday = (new Date(Date.UTC(year, monthNumber - 1, 1, 12)).getUTCDay() + 6) % 7;
+    for (let blank = 0; blank < firstWeekday; blank += 1) {
+      const spacer = document.createElement("span");
+      spacer.className = "completeness-day empty";
+      spacer.setAttribute("aria-hidden", "true");
+      grid.append(spacer);
+    }
+    days.forEach((item) => {
+      const cell = document.createElement("span");
+      const statusClass = item.status === "fehlt"
+        ? "missing"
+        : item.status === "übersprungen"
+          ? "skipped"
+          : item.status === "ok" && !(item.flags || []).length
+            ? ""
+            : "flagged";
+      cell.className = `completeness-day ${statusClass}`.trim();
+      cell.textContent = String(Number(item.date.slice(-2)));
+      const details = [item.status, item.reason, ...(item.flags || [])].filter(Boolean).join("; ");
+      cell.title = `${formatDate(item.date)}: ${details}`;
+      cell.setAttribute("role", "listitem");
+      cell.setAttribute("aria-label", `${formatDate(item.date)}: ${details}`);
+      grid.append(cell);
+    });
+    panel.append(grid);
+    elements.completenessCalendar.append(panel);
+  }
+}
+
+function renderRunHistory() {
+  const runs = window.PV_DAILY_DATA?.runs;
+  elements.runHistoryBody.replaceChildren();
+  if (!Array.isArray(runs) || !runs.length) {
+    appendEmptyRow(elements.runHistoryBody, 5, "Laufhistorie ist im Server-Dashboard verfügbar.");
+    return;
+  }
+  const runDateFormat = new Intl.DateTimeFormat("de-DE", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+  runs.slice(0, 20).forEach((run) => {
+    const finished = run.finished_at ? new Date(run.finished_at) : null;
+    const duration = Number(run.duration_seconds);
+    appendRow(elements.runHistoryBody, [
+      finished && Number.isFinite(finished.getTime()) ? runDateFormat.format(finished) : "-",
+      Number.isFinite(duration) ? `${formatNumber(duration)} s` : "-",
+      String(run.days_ok || 0),
+      String(run.days_skipped || 0),
+      run.ok ? "Erfolgreich" : "Fehlgeschlagen",
+    ]);
+  });
+}
+
+async function pollPublicHealth() {
+  if (!elements.publicStatus || !["http:", "https:"].includes(window.location.protocol)) return;
+  try {
+    const response = await fetch("/api/health", { cache: "no-store" });
+    const health = await response.json();
+    const lastSuccess = health.last_success_date ? formatDate(health.last_success_date) : "Noch kein erfolgreicher Lauf";
+    const updateTime = window.PV_DAILY_DATA?.update_time;
+    const timezone = window.PV_DAILY_DATA?.timezone;
+    const next = updateTime ? `Nächste Aktualisierung: täglich um ${updateTime} Uhr${timezone ? ` (${timezone})` : ""}` : "";
+    elements.publicStatus.textContent = [
+      `Zuletzt aktualisiert: ${lastSuccess}`,
+      next,
+      health.last_message,
+    ].filter(Boolean).join(" · ");
+    elements.publicStatus.dataset.state = health.ok ? "ok" : "stale";
+    elements.publicStatus.hidden = false;
+  } catch (error) {
+    elements.publicStatus.hidden = true;
+  } finally {
+    window.setTimeout(pollPublicHealth, 60000);
+  }
+}
+
+function describeSeries(name, data, valueText) {
+  if (!data.length) return `${name}: keine Daten.`;
+  return `${name}, ${data.length} ${data.length === 1 ? "Tag" : "Tage"} von ${formatShortDate(data[0].date)} bis ${formatShortDate(data.at(-1).date)}. ${valueText} Mit Pfeiltasten den Tag wechseln.`;
+}
+
+/* --------------------------------------------------------------- Stunden- und Tageszeit-Diagramme */
+
+function daysWithHourly() {
+  return records.filter((record) => Array.isArray(record.hourly) && record.hourly.length > 0);
+}
+
+function populateHourlySelect() {
+  const availableDays = daysWithHourly();
+  elements.hourlySelect.replaceChildren();
+  if (!availableDays.length) {
+    elements.hourlySelect.disabled = true;
+    return;
+  }
+  for (const record of availableDays) {
+    const option = document.createElement("option");
+    option.value = record.date;
+    option.textContent = formatDate(record.date);
+    elements.hourlySelect.append(option);
+  }
+  elements.hourlySelect.value = availableDays.at(-1).date;
+  elements.hourlySelect.disabled = false;
+}
+
+function renderHourlyCurtailmentNote(day) {
+  const info = day.curtailment;
+  elements.hourlyCurtailedLegend.hidden = !(info && info.hours > 0);
+  if (!info) {
+    elements.hourlyCurtailmentNote.textContent = day.signals_checked
+      ? "AlphaESS liefert für diesen Tag keine Akku- oder Netzdaten; Abregelung kann nicht beurteilt werden."
+      : "Dieser Tag wurde vor der Abregelungserkennung erfasst. Beim nächsten Start werden die Akku- und Netzdaten nachgeladen.";
+  } else if (!info.hours) {
+    elements.hourlyCurtailmentNote.textContent = "Keine Abregelung erkannt.";
+  } else {
+    const label = info.hours === 1 ? "Stunde" : "Stunden";
+    const upper = info.lost_kwh_upper === null
+      ? ""
+      : `, Obergrenze ${formatNumber(info.lost_kwh_upper)} kWh (Potenzial minus Ist, inklusive Modellabweichung)`;
+    elements.hourlyCurtailmentNote.textContent = `${info.hours} ${label} mit wahrscheinlicher Abregelung: geschätzt ${formatNumber(info.lost_kwh)} kWh${upper}.`;
+  }
+}
+
+function drawHourlyChart() {
+  const availableDays = daysWithHourly();
+  const selectedDay = availableDays.find((record) => record.date === elements.hourlySelect.value) || availableDays.at(-1);
+  if (!selectedDay) {
+    elements.hourlyCanvas.hidden = true;
+    elements.hourlyEmpty.hidden = false;
+    elements.hourlyCurtailedLegend.hidden = true;
+    elements.hourlyCurtailmentNote.textContent = "";
+    return;
+  }
+  elements.hourlyCanvas.hidden = false;
+  elements.hourlyEmpty.hidden = true;
+  renderHourlyCurtailmentNote(selectedDay);
+  drawChart(elements.hourlyCanvas, selectedDay.hourly, "actual_kwh", GREEN, "potential_kwh", {
+    unit: "kWh",
+    comparisonLabel: "Potentieller Ertrag",
+    title: (item) => `${formatDate(selectedDay.date)} · ${item.hour}`,
+    xLabel: (item) => item.hour.slice(0, 2),
+    highlight: (item) => (item.curtailed ? CURTAILED_BAND : null),
+    extraLine: hourlyTooltipExtra,
+  });
+}
+
+function hourProfile() {
+  const days = daysWithHourly().filter((record) => record.hourly.some((point) => point.actual_kwh !== null && point.actual_kwh !== undefined));
+  const sums = new Map();
+  let excluded = 0;
+  days.forEach((record) => {
+    record.hourly.forEach((point) => {
+      if (point.actual_kwh === null || point.actual_kwh === undefined) return;
+      if (point.curtailed) {
+        excluded += 1; // abgeregelte Stunden würden Verschattung vortäuschen
+        return;
+      }
+      const entry = sums.get(point.hour) || { hour: point.hour, actual: 0, potential: 0, days: 0 };
+      entry.actual += Number(point.actual_kwh);
+      entry.potential += Number(point.potential_kwh);
+      entry.days += 1;
+      sums.set(point.hour, entry);
+    });
+  });
+  const data = [...sums.values()]
+    .filter((entry) => entry.potential >= MIN_POTENTIAL_FOR_HOUR_PROFILE)
+    .sort((a, b) => a.hour.localeCompare(b.hour))
+    .map((entry) => ({ hour: entry.hour, ratio_pct: ratioPercent(entry.actual, entry.potential), days: entry.days }));
+  return { dayCount: days.length, data, excluded };
+}
+
+function drawProfileChart() {
+  const { dayCount, data, excluded } = hourProfile();
+  elements.profileNote.textContent = excluded ? `${excluded} als abgeregelt erkannte Stundenwerte wurden aus dieser Auswertung ausgenommen.` : "";
+  const enough = dayCount >= MIN_DAYS_FOR_HOUR_PROFILE && data.length > 0;
+  elements.profileCanvas.hidden = !enough;
+  elements.profileEmpty.hidden = enough;
+  if (!enough) {
+    elements.profileEmptyText.textContent = `Die Auswertung erscheint ab ${MIN_DAYS_FOR_HOUR_PROFILE} Tagen mit Stundenprofil (aktuell ${dayCount}).`;
+    return;
+  }
+  drawChart(elements.profileCanvas, data, "ratio_pct", GREEN, null, {
+    label: "Ø Ist/Potenzial",
+    unit: "%",
+    referenceLine: 100,
+    minimumMaximum: 100,
+    title: (item) => `${item.hour} Uhr`,
+    extraLine: (item) => `Basis: ${item.days} ${item.days === 1 ? "Tag" : "Tage"}`,
+    xLabel: (item) => item.hour.slice(0, 2),
+  });
+}
+
+function validPairs(data) {
+  return data.filter((item) => item.actual_kwh !== null && item.actual_kwh !== undefined && item.potential_kwh !== null && item.potential_kwh !== undefined && Number.isFinite(Number(item.actual_kwh)) && Number.isFinite(Number(item.potential_kwh)) && Number(item.actual_kwh) >= 0 && Number(item.potential_kwh) > 0);
+}
+
+function setAnalysisState(canvas, empty, hasData) {
+  canvas.hidden = !hasData;
+  empty.hidden = hasData;
+}
+
+function beginAnalysisChart(canvas, data, { left = 44, right = 12, top = 10, bottom = 28, title, tooltipLines, pickIndex } = {}) {
+  const bounds = canvas.getBoundingClientRect();
+  if (!bounds.width || !bounds.height || !data.length) return null;
+  const pixelRatio = window.devicePixelRatio || 1;
+  canvas.width = Math.round(bounds.width * pixelRatio);
+  canvas.height = Math.round(bounds.height * pixelRatio);
+  const context = canvas.getContext("2d");
+  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  context.clearRect(0, 0, bounds.width, bounds.height);
+  hideTooltip(canvas);
+  canvas.pvChart = {
+    data,
+    title: title || ((item) => formatDate(item.date)),
+    tooltipLines,
+    pickIndex,
+    left,
+    right,
+    activeIndex: null,
+  };
+  bindChartInteraction(canvas);
+  return { context, width: bounds.width, height: bounds.height, left, right, top, bottom, plotWidth: bounds.width - left - right, plotHeight: bounds.height - top - bottom };
+}
+
+function drawAnalysisAxes(context, frame, maximum, formatter = formatNumber) {
+  context.font = "10px Trebuchet MS, sans-serif";
+  context.textAlign = "right";
+  context.textBaseline = "middle";
+  for (let tick = 0; tick <= 4; tick += 1) {
+    const y = frame.top + (frame.plotHeight * tick) / 4;
+    const value = maximum * (1 - tick / 4);
+    context.strokeStyle = "#e8eeea";
+    context.beginPath();
+    context.moveTo(frame.left, y);
+    context.lineTo(frame.width - frame.right, y);
+    context.stroke();
+    context.fillStyle = "#687872";
+    context.fillText(formatter(value), frame.left - 6, y);
+  }
+}
+
+function median(values) {
+  const sorted = values.filter(Number.isFinite).slice().sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function drawScatterAnalysis() {
+  const data = validPairs(records);
+  const enough = data.length >= 2;
+  setAnalysisState(elements.analysisScatter, elements.analysisScatterEmpty, enough);
+  setAnalysisState(elements.analysisResiduals, elements.analysisResidualsEmpty, enough);
+  if (!enough) {
+    elements.regressionNote.textContent = "";
+    return;
+  }
+  const actual = data.map((item) => Number(item.actual_kwh));
+  const potential = data.map((item) => Number(item.potential_kwh));
+  const xMean = potential.reduce((sum, value) => sum + value, 0) / data.length;
+  const yMean = actual.reduce((sum, value) => sum + value, 0) / data.length;
+  const denominator = potential.reduce((sum, value) => sum + (value - xMean) ** 2, 0);
+  const slope = denominator ? data.reduce((sum, item) => sum + (Number(item.potential_kwh) - xMean) * (Number(item.actual_kwh) - yMean), 0) / denominator : 0;
+  const intercept = yMean - slope * xMean;
+  const limit = Math.max(...actual, ...potential, 1) * 1.08;
+  const frame = beginAnalysisChart(elements.analysisScatter, data, {
+    title: (item) => formatDate(item.date),
+    tooltipLines: (item) => [formatDate(item.date), `Ist: ${formatNumber(item.actual_kwh)} kWh`, `Potenzial: ${formatNumber(item.potential_kwh)} kWh`, `Residuum: ${formatNumber(Number(item.actual_kwh) - Number(item.potential_kwh))} kWh`],
+    pickIndex: (x, y, bounds) => {
+      let closest = -1;
+      let distance = Infinity;
+      data.forEach((item, index) => {
+        const px = 44 + (Number(item.potential_kwh) / limit) * (bounds.width - 56);
+        const py = 10 + (1 - Number(item.actual_kwh) / limit) * (bounds.height - 38);
+        const candidate = (px - x) ** 2 + (py - y) ** 2;
+        if (candidate < distance) { distance = candidate; closest = index; }
+      });
+      return closest;
+    },
+  });
+  if (frame) {
+    drawAnalysisAxes(frame.context, frame, limit);
+    const coordinate = (value) => frame.left + (value / limit) * frame.plotWidth;
+    const vertical = (value) => frame.top + frame.plotHeight - (value / limit) * frame.plotHeight;
+    frame.context.save();
+    frame.context.strokeStyle = ORANGE;
+    frame.context.setLineDash([5, 4]);
+    frame.context.beginPath();
+    frame.context.moveTo(coordinate(0), vertical(0));
+    frame.context.lineTo(coordinate(limit), vertical(limit));
+    frame.context.stroke();
+    frame.context.setLineDash([]);
+    frame.context.strokeStyle = GREEN;
+    frame.context.beginPath();
+    frame.context.moveTo(coordinate(0), vertical(intercept));
+    frame.context.lineTo(coordinate(limit), vertical(slope * limit + intercept));
+    frame.context.stroke();
+    data.forEach((item) => {
+      frame.context.beginPath();
+      frame.context.fillStyle = GREEN;
+      frame.context.arc(coordinate(Number(item.potential_kwh)), vertical(Number(item.actual_kwh)), 3.2, 0, Math.PI * 2);
+      frame.context.fill();
+    });
+    frame.context.restore();
+    frame.context.fillStyle = "#687872";
+    frame.context.font = "9px Trebuchet MS, sans-serif";
+    frame.context.textAlign = "center";
+    frame.context.textBaseline = "top";
+    frame.context.fillText("Potenzial (kWh)", frame.left + frame.plotWidth / 2, frame.height - 14);
+  }
+  elements.regressionNote.textContent = `Regression: Ist = ${formatNumber(slope)} × Potenzial ${intercept < 0 ? "−" : "+"} ${formatNumber(Math.abs(intercept))} kWh.`;
+
+  const residuals = data.map((item) => ({ ...item, residual_kwh: Number(item.actual_kwh) - Number(item.potential_kwh) }));
+  const residualLimit = Math.max(...residuals.map((item) => Math.abs(item.residual_kwh)), 0.1) * 1.12;
+  const residualFrame = beginAnalysisChart(elements.analysisResiduals, residuals, {
+    title: (item) => formatDate(item.date),
+    tooltipLines: (item) => [formatDate(item.date), `Residuum: ${formatNumber(item.residual_kwh)} kWh`],
+  });
+  if (residualFrame) {
+    const context = residualFrame.context;
+    const zero = residualFrame.top + residualFrame.plotHeight / 2;
+    const slot = residualFrame.plotWidth / residuals.length;
+    context.strokeStyle = "#aebbb4";
+    context.beginPath();
+    context.moveTo(residualFrame.left, zero);
+    context.lineTo(residualFrame.width - residualFrame.right, zero);
+    context.stroke();
+    residuals.forEach((item, index) => {
+      const height = (Math.abs(item.residual_kwh) / residualLimit) * (residualFrame.plotHeight / 2);
+      context.fillStyle = item.residual_kwh >= 0 ? GREEN : ORANGE;
+      context.fillRect(residualFrame.left + index * slot + slot * 0.15, item.residual_kwh >= 0 ? zero - height : zero, Math.max(2, slot * 0.7), height);
+    });
+    context.font = "10px Trebuchet MS, sans-serif";
+    context.fillStyle = "#687872";
+    context.textAlign = "right";
+    context.fillText(`${formatNumber(residualLimit)} kWh`, residualFrame.left - 6, residualFrame.top + 5);
+    context.fillText(`−${formatNumber(residualLimit)} kWh`, residualFrame.left - 6, residualFrame.top + residualFrame.plotHeight - 5);
+  }
+}
+
+function drawRatioHistogram() {
+  const ratios = validPairs(records).map((item) => ({ ...item, ratio_pct: ratioPercent(item.actual_kwh, item.potential_kwh) }));
+  const data = ratios.length >= 3;
+  setAnalysisState(elements.analysisHistogram, elements.analysisHistogramEmpty, data);
+  if (!data) return;
+  const bounds = [0, 50, 75, 100, 125, 150, 200, Infinity];
+  const bins = bounds.slice(0, -1).map((start, index) => {
+    const end = bounds[index + 1];
+    const label = Number.isFinite(end) ? `${start}–${end}` : `≥${start}`;
+    const members = ratios.filter((item) => item.ratio_pct >= start && item.ratio_pct < end);
+    return { label, count: members.length, ratio_pct: members.length / ratios.length * 100, members, date: members.at(-1)?.date || "" };
+  });
+  const frame = beginAnalysisChart(elements.analysisHistogram, bins, {
+    title: (item) => item.label,
+    tooltipLines: (item) => [item.label, `${item.count} ${item.count === 1 ? "Tag" : "Tage"} (${formatNumber(item.ratio_pct)} %)`],
+  });
+  if (!frame) return;
+  const maximum = Math.max(10, ...bins.map((item) => item.ratio_pct)) * 1.15;
+  drawAnalysisAxes(frame.context, frame, maximum, (value) => `${formatNumber(value)}%`);
+  const slot = frame.plotWidth / bins.length;
+  bins.forEach((item, index) => {
+    const height = item.ratio_pct / maximum * frame.plotHeight;
+    frame.context.fillStyle = GREEN;
+    frame.context.fillRect(frame.left + index * slot + slot * 0.12, frame.top + frame.plotHeight - height, slot * 0.76, height);
+    frame.context.fillStyle = "#687872";
+    frame.context.font = "9px Trebuchet MS, sans-serif";
+    frame.context.textAlign = "center";
+    frame.context.textBaseline = "top";
+    frame.context.fillText(item.label, frame.left + slot * (index + 0.5), frame.top + frame.plotHeight + 5);
+  });
+}
+
+function drawTrend() {
+  const pairs = validPairs(records);
+  const enough = pairs.length >= 7;
+  setAnalysisState(elements.analysisTrend, elements.analysisTrendEmpty, enough);
+  elements.annualNote.textContent = "";
+  if (!enough) return;
+  let startIndex = 0;
+  const data = pairs.map((item, index) => {
+    const start = addDays(item.date, -29);
+    while (pairs[startIndex].date < start) startIndex += 1;
+    const window = pairs.slice(startIndex, index + 1);
+    return {
+      ...item,
+      actual_median: median(window.map((entry) => Number(entry.actual_kwh))),
+      potential_median: median(window.map((entry) => Number(entry.potential_kwh))),
+      sample_count: window.length,
+    };
+  });
+  const frame = beginAnalysisChart(elements.analysisTrend, data, {
+    title: (item) => formatDate(item.date),
+    tooltipLines: (item) => [formatDate(item.date), `30-Tage-Median Ist: ${formatNumber(item.actual_median)} kWh`, `30-Tage-Median Potenzial: ${formatNumber(item.potential_median)} kWh`, `Tageswerte im Fenster: ${item.sample_count}`],
+  });
+  if (frame) {
+    const maximum = Math.max(...data.flatMap((item) => [item.actual_median, item.potential_median])) * 1.12;
+    drawAnalysisAxes(frame.context, frame, maximum);
+    const slot = frame.plotWidth / data.length;
+    for (const [key, color] of [["potential_median", ORANGE], ["actual_median", GREEN]]) {
+      frame.context.strokeStyle = color;
+      frame.context.lineWidth = 2;
+      frame.context.beginPath();
+      data.forEach((item, index) => {
+        const x = frame.left + slot * (index + 0.5);
+        const y = frame.top + frame.plotHeight - item[key] / maximum * frame.plotHeight;
+        if (!index) frame.context.moveTo(x, y); else frame.context.lineTo(x, y);
+      });
+      frame.context.stroke();
+    }
+    frame.context.fillStyle = "#687872";
+    frame.context.font = "9px Trebuchet MS, sans-serif";
+    frame.context.textAlign = "center";
+    frame.context.textBaseline = "top";
+    const stride = Math.max(1, Math.ceil(data.length / 6));
+    data.forEach((item, index) => {
+      if (index % stride === 0 || index === data.length - 1) frame.context.fillText(formatShortDate(item.date), frame.left + slot * (index + 0.5), frame.top + frame.plotHeight + 5);
+    });
+  }
+
+  const latest = records.at(-1);
+  const previousStart = addDays(latest.date, -394);
+  const previousEnd = addDays(latest.date, -365);
+  const previousYear = validPairs(records.filter((item) => item.date >= previousStart && item.date <= previousEnd));
+  const currentStart = addDays(latest.date, -29);
+  const current = validPairs(records.filter((item) => item.date >= currentStart && item.date <= latest.date));
+  if (current.length >= 7 && previousYear.length >= 7) {
+    const currentRatio = ratioPercent(sumOf(current, "actual_kwh"), sumOf(current, "potential_kwh"));
+    const previousRatio = ratioPercent(sumOf(previousYear, "actual_kwh"), sumOf(previousYear, "potential_kwh"));
+    elements.annualNote.textContent = `30-Tage-Jahresvergleich Ist/Potenzial: ${formatNumber(currentRatio)} % aktuell gegenüber ${formatNumber(previousRatio)} % im Vorjahr.`;
+  } else {
+    elements.annualNote.textContent = "Jahresvergleich noch nicht verfügbar: Für denselben Zeitraum im Vorjahr fehlen mindestens sieben Tageswerte.";
+  }
+}
+
+function heatColor(ratio) {
+  if (ratio < 50) return "#dc7b52";
+  if (ratio <= 100) return "#e5ad38";
+  return "#197459";
+}
+
+function drawHeatmap() {
+  const days = daysWithHourly().slice(-30);
+  const cells = [];
+  const hours = [...new Set(days.flatMap((day) => day.hourly.map((point) => point.hour)))].sort();
+  days.forEach((day, dayIndex) => day.hourly.forEach((point) => {
+    const ratio = ratioPercent(point.actual_kwh, point.potential_kwh);
+    if (ratio === null || !Number.isFinite(ratio)) return;
+    cells.push({ date: day.date, hour: point.hour, ratio_pct: ratio, dayIndex, hourIndex: hours.indexOf(point.hour) });
+  }));
+  const enough = cells.length > 0;
+  setAnalysisState(elements.analysisHeatmap, elements.analysisHeatmapEmpty, enough);
+  if (!enough) return;
+  let geometry;
+  const frame = beginAnalysisChart(elements.analysisHeatmap, cells, {
+    left: 44, right: 8, top: 10, bottom: 30,
+    title: (item) => `${formatDate(item.date)} · ${item.hour}`,
+    tooltipLines: (item) => [`${formatDate(item.date)} · ${item.hour}`, `Ist / Potenzial: ${formatNumber(item.ratio_pct)} %`],
+    pickIndex: (x, y) => {
+      if (!geometry) return -1;
+      const dayIndex = Math.floor((x - geometry.left) / geometry.cellWidth);
+      const hourIndex = Math.floor((y - geometry.top) / geometry.cellHeight);
+      return cells.findIndex((cell) => cell.dayIndex === dayIndex && cell.hourIndex === hourIndex);
+    },
+  });
+  if (!frame) return;
+  geometry = { left: frame.left, top: frame.top, cellWidth: frame.plotWidth / days.length, cellHeight: frame.plotHeight / Math.max(hours.length, 1) };
+  frame.context.font = "8px Trebuchet MS, sans-serif";
+  cells.forEach((cell) => {
+    frame.context.fillStyle = heatColor(Math.min(cell.ratio_pct, 150));
+    frame.context.fillRect(frame.left + cell.dayIndex * geometry.cellWidth, frame.top + cell.hourIndex * geometry.cellHeight, Math.max(1, geometry.cellWidth - 1), Math.max(1, geometry.cellHeight - 1));
+  });
+  frame.context.fillStyle = "#687872";
+  frame.context.textAlign = "right";
+  frame.context.textBaseline = "middle";
+  hours.forEach((hour, index) => frame.context.fillText(hour.slice(0, 2), frame.left - 5, frame.top + (index + 0.5) * geometry.cellHeight));
+  frame.context.textAlign = "center";
+  frame.context.textBaseline = "top";
+  const stride = Math.max(1, Math.ceil(days.length / 6));
+  days.forEach((day, index) => {
+    if (index % stride === 0 || index === days.length - 1) frame.context.fillText(formatShortDate(day.date), frame.left + (index + 0.5) * geometry.cellWidth, frame.top + frame.plotHeight + 5);
+  });
+}
+
+function drawCurtailmentSeries() {
+  const months = new Map();
+  records.forEach((record) => (record.hourly || []).forEach((point) => {
+    if (point.curtailed !== "limit" && point.curtailed !== "battery") return;
+    const potential = Number(point.potential_kwh);
+    const actual = Number(point.actual_kwh);
+    if (!Number.isFinite(potential) || !Number.isFinite(actual)) return;
+    const month = record.date.slice(0, 7);
+    const entry = months.get(month) || { month, limit: 0, battery: 0 };
+    entry[point.curtailed] += Math.max(0, potential - actual);
+    months.set(month, entry);
+  }));
+  const data = [...months.values()].sort((a, b) => a.month.localeCompare(b.month));
+  setAnalysisState(elements.analysisCurtailment, elements.analysisCurtailmentEmpty, data.length > 0);
+  if (!data.length) return;
+  const frame = beginAnalysisChart(elements.analysisCurtailment, data, {
+    title: (item) => item.month,
+    tooltipLines: (item) => [`${item.month}`, `Einspeiselimit: ${formatNumber(item.limit)} kWh`, `Akku voll: ${formatNumber(item.battery)} kWh`],
+  });
+  if (!frame) return;
+  const maximum = Math.max(0.1, ...data.map((item) => item.limit + item.battery)) * 1.15;
+  drawAnalysisAxes(frame.context, frame, maximum);
+  const slot = frame.plotWidth / data.length;
+  data.forEach((item, index) => {
+    const x = frame.left + index * slot + slot * 0.1;
+    const barWidth = slot * 0.8;
+    const limitHeight = item.limit / maximum * frame.plotHeight;
+    const batteryHeight = item.battery / maximum * frame.plotHeight;
+    frame.context.fillStyle = ORANGE;
+    frame.context.fillRect(x, frame.top + frame.plotHeight - limitHeight, barWidth, limitHeight);
+    frame.context.fillStyle = GREEN;
+    frame.context.fillRect(x, frame.top + frame.plotHeight - limitHeight - batteryHeight, barWidth, batteryHeight);
+    frame.context.fillStyle = "#687872";
+    frame.context.font = "9px Trebuchet MS, sans-serif";
+    frame.context.textAlign = "center";
+    frame.context.textBaseline = "top";
+    frame.context.fillText(item.month.slice(5), x + barWidth / 2, frame.top + frame.plotHeight + 5);
+  });
+}
+
+function drawSocChart() {
+  const day = daysWithHourly().slice().reverse().find((record) =>
+    record.hourly.some((point) => point.soc_pct !== null && point.soc_pct !== undefined && Number.isFinite(Number(point.soc_pct))),
+  );
+  const data = day
+    ? day.hourly
+        .filter((point) => point.soc_pct !== null && point.soc_pct !== undefined && Number.isFinite(Number(point.soc_pct)))
+        .map((point) => ({ ...point, date: day.date, soc_pct: Number(point.soc_pct) }))
+    : [];
+  setAnalysisState(elements.analysisSoc, elements.analysisSocEmpty, data.length > 0);
+  if (!data.length) return;
+  const frame = beginAnalysisChart(elements.analysisSoc, data, {
+    title: (item) => `${formatDate(item.date)} · ${item.hour}`,
+    tooltipLines: (item) => [`${formatDate(item.date)} · ${item.hour}`, `Akku-Ladezustand: ${formatNumber(item.soc_pct)} %`],
+  });
+  if (!frame) return;
+  drawAnalysisAxes(frame.context, frame, 100, (value) => `${formatNumber(value)}%`);
+  const slot = frame.plotWidth / data.length;
+  frame.context.strokeStyle = GREEN;
+  frame.context.lineWidth = 2;
+  frame.context.beginPath();
+  data.forEach((item, index) => {
+    const x = frame.left + slot * (index + 0.5);
+    const y = frame.top + frame.plotHeight - Math.max(0, Math.min(100, item.soc_pct)) / 100 * frame.plotHeight;
+    if (!index) frame.context.moveTo(x, y); else frame.context.lineTo(x, y);
+  });
+  frame.context.stroke();
+  data.forEach((item, index) => {
+    const x = frame.left + slot * (index + 0.5);
+    const y = frame.top + frame.plotHeight - Math.max(0, Math.min(100, item.soc_pct)) / 100 * frame.plotHeight;
+    frame.context.beginPath();
+    frame.context.fillStyle = GREEN;
+    frame.context.arc(x, y, 2.5, 0, Math.PI * 2);
+    frame.context.fill();
+    if (index % Math.max(1, Math.ceil(data.length / 6)) === 0 || index === data.length - 1) {
+      frame.context.fillStyle = "#687872";
+      frame.context.font = "9px Trebuchet MS, sans-serif";
+      frame.context.textAlign = "center";
+      frame.context.textBaseline = "top";
+      frame.context.fillText(item.hour.slice(0, 2), x, frame.top + frame.plotHeight + 5);
+    }
+  });
+}
+
+function renderAnomalies() {
+  const ratios = validPairs(records).map((item) => ({ item, ratio: ratioPercent(item.actual_kwh, item.potential_kwh) }));
+  elements.anomalies.replaceChildren();
+  if (ratios.length < 7) {
+    elements.anomalies.textContent = "Auffällige Tage erscheinen ab sieben gültigen Tagesverhältnissen.";
+    return;
+  }
+  const center = median(ratios.map((entry) => entry.ratio));
+  const mad = median(ratios.map((entry) => Math.abs(entry.ratio - center)));
+  const unusual = ratios.filter((entry) => mad === 0 ? entry.ratio !== center : Math.abs(0.6745 * (entry.ratio - center) / mad) >= 3.5);
+  if (!unusual.length) {
+    elements.anomalies.textContent = "Keine robusten Ausreißer im Tagesverhältnis erkannt.";
+  } else {
+    const list = document.createElement("ul");
+    unusual.sort((a, b) => Math.abs(b.ratio - center) - Math.abs(a.ratio - center)).slice(0, 8).forEach(({ item, ratio }) => {
+      const row = document.createElement("li");
+      const profile = Array.isArray(item.hourly) ? item.hourly : [];
+      const missing = profile.some((point) => point.actual_kwh === null || point.actual_kwh === undefined);
+      const qualityDescriptions = {
+        low_coverage: "geringe Probenabdeckung",
+        epv_mismatch: "Stundenintegral weicht vom Tageswert ab",
+        hourly_missing: "Stundenprofil fehlt",
+        daylight_coverage_low: "geringe Tageslichtabdeckung",
+      };
+      const qualityFlags = Array.isArray(item.quality?.flags)
+        ? item.quality.flags.map((flag) => qualityDescriptions[flag] || flag).join(", ")
+        : "";
+      const context = [
+        `Ist/Potenzial ${formatNumber(ratio)} %`,
+        `Sonne ${formatNumber(item.sunshine_hours)} h`,
+        item.poa_kwh_m2 != null ? `Einstrahlung ${formatNumber(item.poa_kwh_m2)} kWh/m²` : "",
+        item.weather_source ? `Wetter ${({ archive: "Archiv", forecast: "Vorhersage" })[item.weather_source] || "Quelle nicht vermerkt"}` : "Wetterquelle nicht vermerkt",
+        item.curtailment?.hours ? `Abregelung ${item.curtailment.hours} h` : "",
+        qualityFlags ? `Datenqualität: ${qualityFlags}` : "",
+        missing ? "Stundenprofil lückenhaft" : "",
+      ].filter(Boolean);
+      row.textContent = `${formatDate(item.date)} — ${context.join(" · ")}`;
+      list.append(row);
+    });
+    elements.anomalies.append(list);
+  }
+  const note = document.createElement("p");
+  note.textContent = "Temperatur- und Schnee-Hinweise sind im eingebetteten Tagesformat nicht enthalten.";
+  elements.anomalies.append(note);
+}
+
+function drawAnalysisCharts() {
+  drawScatterAnalysis();
+  drawRatioHistogram();
+  drawTrend();
+  drawHeatmap();
+  drawCurtailmentSeries();
+  drawSocChart();
+  renderAnomalies();
+}
+
+/* ------------------------------------------------------------------------------- Rendern */
+
+function drawCharts() {
+  const data = visibleRecords();
+  if (data.length) {
+    drawChart(elements.energyCanvas, data, "actual_kwh", GREEN, "potential_kwh");
+    drawChart(elements.sunshineCanvas, data, "sunshine_hours", SUN);
+    drawChart(
+      elements.ratioCanvas,
+      data.map((item) => ({ ...item, ratio_pct: ratioPercent(item.actual_kwh, item.potential_kwh) })),
+      "ratio_pct",
+      GREEN,
+      null,
+      { label: "Ist/Potenzial", unit: "%", referenceLine: 100, minimumMaximum: 100 },
+    );
+  }
+  drawHourlyChart();
+  drawProfileChart();
+  drawAnalysisCharts();
+}
+
+function updateAccessibleLabels(data) {
+  elements.energyCanvas.setAttribute(
+    "aria-label",
+    describeSeries("Täglicher Ist-Ertrag und potentieller Ertrag", data, `Summe Ist ${formatNumber(sumOf(data, "actual_kwh"))} kWh, Summe Potenzial ${formatNumber(sumOf(data, "potential_kwh"))} kWh.`),
+  );
+  elements.sunshineCanvas.setAttribute(
+    "aria-label",
+    describeSeries("Tägliche Sonnenstunden", data, `Summe ${formatNumber(sumOf(data, "sunshine_hours"))} Stunden.`),
+  );
+  elements.ratioCanvas.setAttribute(
+    "aria-label",
+    describeSeries("Tägliches Verhältnis von Ist-Ertrag zu Potenzial", data, `Gesamtverhältnis ${percentText(ratioPercent(sumOf(data, "actual_kwh"), sumOf(data, "potential_kwh")))}.`),
+  );
+}
+
+function render() {
+  const data = visibleRecords();
+  setEmptyState(data.length > 0);
+  renderMetrics();
+  renderSummary();
+  renderHistory(data);
+  renderSourceNote();
+  renderMetricsSummary(data);
+  renderModelWarning();
+  renderReferenceSummary();
+  renderCompleteness();
+  renderRunHistory();
+  updateAccessibleLabels(data);
+  drawCharts();
+  elements.exportButton.disabled = records.length === 0;
+}
+
+/* -------------------------------------------------------------------------------- Export */
+
+function csvNumber(value) {
+  if (value === null || value === undefined || value === "") return "";
+  // Deutsches Excel erwartet das Dezimalkomma; mit Punkt würde es Werte als Datum oder Text lesen.
+  return String(value).replace(".", ",");
+}
+
+function buildCsv() {
+  const rows = [
+    ["date", "actual_kwh", "potential_kwh", "sunshine_hours", "curtailed_hours", "curtailed_kwh"],
+    ...records.map((item) => [
+      item.date,
+      csvNumber(item.actual_kwh),
+      csvNumber(item.potential_kwh),
+      csvNumber(item.sunshine_hours),
+      csvNumber(item.curtailment?.hours),
+      csvNumber(item.curtailment?.lost_kwh),
+    ]),
+  ];
+  return rows.map((row) => row.join(";")).join("\r\n");
+}
+
+function exportCsv() {
+  const blob = new Blob(["\ufeff", buildCsv()], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "pv-tagesbericht.csv";
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* ------------------------------------------------------------------------------- Start */
+
+function debounce(callback, delay) {
+  let timer = null;
+  return () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(callback, delay);
+  };
+}
+
+document.querySelectorAll("[data-range]").forEach((button) => {
+  button.addEventListener("click", () => {
+    activeRange = button.dataset.range === "all" ? "all" : Number(button.dataset.range);
+    document.querySelectorAll("[data-range]").forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+    render();
+    pollPublicHealth();
+  });
+});
+elements.exportButton.addEventListener("click", exportCsv);
+elements.hourlySelect.addEventListener("change", drawHourlyChart);
+
+elements.connection.dataset.state = records.length ? "ready" : "loading";
+elements.connectionLabel.textContent = records.length ? "Lokal gespeichert" : "Noch keine Tagesdaten";
+populateHourlySelect();
+render();
+// Bei Größenänderung nur neu zeichnen: Tabellen und die Tag-Auswahl bleiben unangetastet.
+window.addEventListener("resize", debounce(drawCharts, 150));
+
+</script>
+
+</body>
+</html>

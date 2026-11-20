@@ -35,12 +35,20 @@ def data_path() -> Path:
     return app_data_directory() / "daily.json"
 
 
+def database_path() -> Path:
+    return app_data_directory() / "pv.sqlite"
+
+
 def log_directory() -> Path:
     return app_data_directory() / "logs"
 
 
 def horizon_cache_path() -> Path:
     return app_data_directory() / "horizon.json"
+
+
+def tmy_cache_path() -> Path:
+    return app_data_directory() / "tmy_expected.json"
 
 
 def settings_path() -> Path:
@@ -50,3 +58,7 @@ def settings_path() -> Path:
 
 def status_path() -> Path:
     return app_data_directory() / "status.json"
+
+
+def last_run_path() -> Path:
+    return app_data_directory() / "last-run.json"
